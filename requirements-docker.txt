@@ -5,6 +5,9 @@ pydantic==2.13.4
 numpy==2.3.5
 pillow==12.3.0
 opencv-python-headless==4.10.0.84
+rapidocr
+onnxruntime
+# Fallback qualité (hybrid) — optionnel mais recommandé
 paddlepaddle==3.2.2
 paddleocr==3.7.0
 paddlex==3.7.2

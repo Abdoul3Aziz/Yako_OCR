@@ -84,6 +84,25 @@ def test_extract_verso_fields():
     assert data["lieu_emission"] == "ABIDJAN"
 
 
+def test_lieu_emission_standalone_abidjan():
+    """OCR place souvent ABIDJAN seul après la date (ne pas couper en BIDJAN)."""
+    verso = """
+NNI:
+12011961101
+Profession: ETUDIANT(E)
+Date d'émission:
+02/04/2022
+ABIDJAN
+Signature de l'Autori
+IDCIVCI0035360<823<<<<<<<<<<<<
+0107301M3204027CIV120119611011
+BRIDA<<MAHI<LANDRY<<<<<<<<<<<<
+"""
+    data = extract_verso(verso)
+    assert data["lieu_emission"] == "ABIDJAN"
+    assert data["date_emission"] == "2022-04-02"
+
+
 def test_real_cni_merge():
     fields = merge_cni_fields(RECTO_REAL, VERSO_REAL)
     assert fields["numero"] == "CI002745404"

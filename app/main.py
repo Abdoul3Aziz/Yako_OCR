@@ -1,3 +1,5 @@
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -10,10 +12,35 @@ from app.api.routes_passeport import router as passeport_router
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("yako_ocr")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Précharge PaddleOCR au démarrage pour éviter le 1er appel très lent
+    from app.services.ocr import ocr_service
+
+    try:
+        import time
+
+        logger.info("Warmup OCR en cours...")
+        t0 = time.perf_counter()
+        ocr_service.warmup()
+        logger.info("Warmup OCR terminé en %.0f ms", (time.perf_counter() - t0) * 1000)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Warmup OCR ignoré: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="OCR Documents Ivoiriens",
     description="API OCR pour l'extraction structurée des documents d'identité.",
-    version="0.3.0",
+    version="0.3.1",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

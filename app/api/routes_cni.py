@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import time
+
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import ValidationError
 
 from app.schemas.cni import CNIResult
 from app.services.pipeline import process_cni, validate_upload
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ocr", tags=["CNI"])
 
 
@@ -18,6 +22,7 @@ async def ocr_cni(
     recto: UploadFile = File(..., description="Image recto de la CNI"),
     verso: UploadFile = File(..., description="Image verso de la CNI"),
 ) -> CNIResult:
+    request_started = time.perf_counter()
     try:
         validate_upload(recto.filename, recto.content_type)
         validate_upload(verso.filename, verso.content_type)
@@ -27,7 +32,12 @@ async def ocr_cni(
         if not recto_bytes or not verso_bytes:
             raise ValueError("Les fichiers recto et verso sont obligatoires.")
 
-        return process_cni(recto_bytes, verso_bytes)
+        result = process_cni(recto_bytes, verso_bytes)
+        logger.info(
+            "POST /ocr/cni terminé en %.0f ms (requête HTTP totale)",
+            (time.perf_counter() - request_started) * 1000,
+        )
+        return result
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -3,6 +3,7 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    OCR_BACKEND=hybrid \
     FLAGS_use_mkldnn=0 \
     FLAGS_enable_pir_api=0 \
     FLAGS_enable_pir_in_executor=0 \

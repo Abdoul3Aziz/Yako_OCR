@@ -240,6 +240,30 @@ def _find_date_near_label(text: str, label_patterns: list[str]) -> Optional[str]
     return None
 
 
+def _lieu_emission_after_date(text: str) -> Optional[str]:
+    """Ville seule sur la ligne suivant la date d'émission."""
+    lines = _lines(text)
+    date_re = re.compile(DATE_PATTERN)
+    city_re = re.compile(r"^[A-Z][A-Z\-']{2,40}$")
+    for idx, line in enumerate(lines):
+        if not date_re.search(line):
+            continue
+        # Ne considérer que la fenêtre autour de la date d'émission
+        context = "\n".join(lines[max(0, idx - 2) : idx + 1])
+        if not re.search(r"EMISSION|DELIVRE", context, re.IGNORECASE):
+            # Si la date est seule, accepter si la ligne précédente cite l'émission
+            prev = lines[idx - 1] if idx > 0 else ""
+            if not re.search(r"EMISSION|DELIVRE", prev, re.IGNORECASE):
+                continue
+        for nxt in lines[idx + 1 : idx + 4]:
+            candidate = _clean_value(nxt)
+            if _is_label(candidate) or re.search(r"SIGNATURE|DIRECTEUR|OFFICE", candidate):
+                break
+            if city_re.fullmatch(candidate):
+                return candidate
+    return None
+
+
 def extract_recto(text: str) -> dict[str, Optional[str]]:
     normalized = normalize_ocr_text(text)
     demo = _parse_demographics_blob(normalized)
@@ -355,14 +379,19 @@ def extract_verso(text: str) -> dict[str, Optional[str]]:
             [r"DATE\s+D[' ]?EMISSION", r"DELIVRE\s+LE"],
         )
 
+    # Exiger séparateur après "A"/"À" pour ne pas couper ABIDJAN → BIDJAN
     lieu_emission = _first_match_simple(
         [
-            r"(?m)^\s*A\s*[:\-]?\s*([A-Z][A-Z\-']{2,40})\s*$",
+            r"(?m)^\s*A\s*[:\-]\s*([A-Z][A-Z\-']{2,40})\s*$",
+            r"(?m)^\s*A\s+([A-Z][A-Z\-']{2,40})\s*$",
             r"\bA\s*[:\-]\s*([A-Z][A-Z\-']{2,40})\b",
             rf"{DATE_PATTERN}\s+A\s+([A-Z][A-Z\-']{{2,40}})\b",
         ],
         normalized,
     )
+    if not lieu_emission:
+        # Ville seule juste après la date d'émission (ex. ABIDJAN sur sa ligne)
+        lieu_emission = _lieu_emission_after_date(normalized)
     if lieu_emission:
         lieu_emission = _clean_value(lieu_emission.split("\n", 1)[0]).upper()
         if (
