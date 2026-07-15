@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yako OCR — Documents d'identité</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="top">
+        <div class="brand">
+          <div>
+            <p class="brand-name">Yako OCR</p>
+            <p class="brand-tag">Extraction structurée CNI &amp; Passeport</p>
+          </div>
+        </div>
+        <label class="api-field">
+          <span>API</span>
+          <input
+            id="apiBase"
+            type="url"
+            value=""
+            placeholder="http://127.0.0.1:8000"
+            autocomplete="off"
+          />
+        </label>
+      </header>
+
+      <main class="layout">
+        <section class="panel upload-panel">
+          <h1>Analyser un document</h1>
+          <p class="lead">
+            Importez une image ou prenez une photo du recto et du verso, puis lancez l’OCR.
+          </p>
+
+          <div class="doc-switch" role="tablist" aria-label="Type de document">
+            <button type="button" class="doc-btn is-active" data-type="cni" role="tab" aria-selected="true">
+              CNI
+            </button>
+            <button type="button" class="doc-btn" data-type="passeport" role="tab" aria-selected="false">
+              Passeport
+            </button>
+          </div>
+
+          <form id="ocrForm" class="upload-form">
+            <div class="drop-grid">
+              <div class="dropzone" data-side="recto">
+                <input
+                  id="rectoInput"
+                  name="recto"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  required
+                  hidden
+                />
+                <input
+                  id="rectoCameraNative"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  hidden
+                />
+                <img id="rectoPreview" class="preview" alt="" hidden />
+                <span class="drop-label">Recto</span>
+                <span class="drop-hint" id="rectoHint">Fichier ou photo</span>
+                <div class="drop-actions">
+                  <button type="button" class="btn-source" data-action="file" data-side="recto">
+                    Fichier
+                  </button>
+                  <button type="button" class="btn-source" data-action="camera" data-side="recto">
+                    Photo
+                  </button>
+                </div>
+              </div>
+
+              <div class="dropzone" data-side="verso">
+                <input
+                  id="versoInput"
+                  name="verso"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  required
+                  hidden
+                />
+                <input
+                  id="versoCameraNative"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  hidden
+                />
+                <img id="versoPreview" class="preview" alt="" hidden />
+                <span class="drop-label">Verso</span>
+                <span class="drop-hint" id="versoHint">Fichier ou photo</span>
+                <div class="drop-actions">
+                  <button type="button" class="btn-source" data-action="file" data-side="verso">
+                    Fichier
+                  </button>
+                  <button type="button" class="btn-source" data-action="camera" data-side="verso">
+                    Photo
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button type="submit" id="submitBtn" class="btn-primary">
+                Extraire les informations
+              </button>
+              <button type="button" id="resetBtn" class="btn-ghost">Réinitialiser</button>
+            </div>
+          </form>
+
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel result-panel">
+          <div class="result-head">
+            <h2>Résultat</h2>
+            <button type="button" id="copyBtn" class="btn-ghost">Copier JSON</button>
+          </div>
+
+          <form id="resultForm" class="result-view">
+            <div id="fieldsGrid" class="fields-grid"></div>
+          </form>
+
+          <details class="raw-block">
+            <summary>JSON brut</summary>
+            <pre id="jsonOut">{}</pre>
+          </details>
+        </section>
+      </main>
+    </div>
+
+    <div id="cameraModal" class="camera-modal" hidden>
+      <div class="camera-dialog" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
+        <div class="camera-head">
+          <h3 id="cameraTitle">Prendre une photo</h3>
+          <button type="button" id="cameraClose" class="btn-ghost">Fermer</button>
+        </div>
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <canvas id="cameraCanvas" hidden></canvas>
+        <div class="camera-actions">
+          <button type="button" id="cameraCapture" class="btn-primary">Capturer</button>
+          <button type="button" id="cameraSwitch" class="btn-ghost">Changer de caméra</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>

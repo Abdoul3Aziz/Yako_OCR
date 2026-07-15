@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+.cursor
+**/__pycache__/
+*.md
+Plan_Implementation_OCR.png
+tests
+agent-transcripts
+.env
+**/.DS_Store
