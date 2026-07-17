@@ -30,11 +30,32 @@
       "adresse",
       "taille",
     ],
+    cmu: [
+      "document_type",
+      "numero_securite_sociale",
+      "nom",
+      "prenoms",
+      "date_naissance",
+      "date_emission",
+    ],
+    permis: [
+      "document_type",
+      "numero_permis",
+      "nom",
+      "prenoms",
+      "date_naissance",
+      "lieu_naissance",
+      "date_delivrance",
+      "lieu_delivrance",
+      "groupe_sanguin",
+    ],
   };
 
   const FIELD_LABELS = {
     document_type: "Type de document",
     numero: "Numéro",
+    numero_securite_sociale: "Numéro de sécurité sociale",
+    numero_permis: "Numéro du permis",
     nom: "Nom",
     prenoms: "Prénoms",
     nationalite: "Nationalité",
@@ -46,7 +67,10 @@
     nni: "NNI",
     profession: "Profession",
     date_emission: "Date d'émission",
+    date_delivrance: "Date de délivrance",
     lieu_emission: "Lieu d'émission",
+    lieu_delivrance: "Lieu de délivrance",
+    groupe_sanguin: "Groupe sanguin",
     adresse: "Adresse",
   };
 
@@ -495,7 +519,12 @@
       fillFields(payload);
       const missing = payload.champs_manquants?.length || 0;
       const detectedLabel =
-        payload.document_type === "cni" ? "CNI" : "Passeport";
+        {
+          cni: "CNI",
+          passeport: "Passeport",
+          cmu: "CMU",
+          permis: "Permis de conduire",
+        }[payload.document_type] || "Document";
       setStatus(
         missing
           ? `${detectedLabel} détecté — ${missing} champ(s) manquant(s).`

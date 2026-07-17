@@ -8,10 +8,14 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from app.extractors.cmu import merge_cmu_fields
 from app.extractors.cni import merge_cni_fields
 from app.extractors.passeport import merge_passeport_fields
+from app.extractors.permis import merge_permis_fields
+from app.schemas.cmu import CMURawText, CMUResult
 from app.schemas.cni import CNIRawText, CNIResult
 from app.schemas.passeport import PasseportRawText, PasseportResult
+from app.schemas.permis import PermisRawText, PermisResult
 from app.services.document_type import DocumentType, detect_document_type
 from app.services.ocr import OCR_BACKEND, ocr_service
 from app.services.preprocess import preprocess_image
@@ -33,6 +37,22 @@ _preprocess_pool = ThreadPoolExecutor(max_workers=2)
 # Champs prioritaires: si absents après Rapid → fallback Paddle
 CNI_PRIORITY = ("nom", "prenoms", "numero", "nni", "date_naissance", "sexe")
 PASSEPORT_PRIORITY = ("nom", "prenoms", "numero", "date_naissance", "sexe", "nationalite")
+CMU_PRIORITY = (
+    "nom",
+    "prenoms",
+    "numero_securite_sociale",
+    "date_naissance",
+    "date_emission",
+)
+PERMIS_PRIORITY = (
+    "nom",
+    "prenoms",
+    "numero_permis",
+    "date_naissance",
+    "lieu_naissance",
+    "date_delivrance",
+    "lieu_delivrance",
+)
 FALLBACK_MIN_MISSING = max(2, int(os.getenv("OCR_FALLBACK_MIN_MISSING", "3")))
 
 
@@ -78,12 +98,13 @@ def _should_fallback(fields: dict[str, Optional[str]], priority: tuple[str, ...]
     # Paddle reste obligatoire si le résultat ne pourrait pas être validé.
     if not fields.get("nom"):
         return True
-    if "nni" in fields:
-        # CNI : numéro OU NNI suffit pour identifier le document.
-        if not fields.get("numero") and not fields.get("nni"):
-            return True
-    elif not fields.get("numero"):
-        # Passeport : le numéro est obligatoire.
+    identity = (
+        fields.get("numero")
+        or fields.get("nni")
+        or fields.get("numero_securite_sociale")
+        or fields.get("numero_permis")
+    )
+    if not identity:
         return True
 
     # Un seul champ secondaire manquant ne justifie pas ~15 s de Paddle.
@@ -226,7 +247,7 @@ def process_passeport(recto_bytes: bytes, verso_bytes: bytes) -> PasseportResult
 
 def process_document(
     recto_bytes: bytes, verso_bytes: bytes
-) -> CNIResult | PasseportResult:
+) -> CNIResult | PasseportResult | CMUResult | PermisResult:
     """Détecte le document puis applique l'extracteur correspondant, sans refaire l'OCR."""
     started = time.perf_counter()
     t0 = time.perf_counter()
@@ -287,14 +308,24 @@ def process_document(
             logger.warning("Fallback Paddle impossible: %s", exc)
 
     if document_type == "cni":
-        result: CNIResult | PasseportResult = CNIResult(
+        result: CNIResult | PasseportResult | CMUResult | PermisResult = CNIResult(
             **fields,
             raw_text=CNIRawText(recto=recto_text, verso=verso_text),
         )
-    else:
+    elif document_type == "passeport":
         result = PasseportResult(
             **fields,
             raw_text=PasseportRawText(recto=recto_text, verso=verso_text),
+        )
+    elif document_type == "cmu":
+        result = CMUResult(
+            **fields,
+            raw_text=CMURawText(recto=recto_text, verso=verso_text),
+        )
+    else:
+        result = PermisResult(
+            **fields,
+            raw_text=PermisRawText(recto=recto_text, verso=verso_text),
         )
 
     logger.info(
@@ -312,4 +343,8 @@ def process_document(
 def _document_pipeline(document_type: DocumentType):
     if document_type == "cni":
         return merge_cni_fields, CNI_PRIORITY
-    return merge_passeport_fields, PASSEPORT_PRIORITY
+    if document_type == "passeport":
+        return merge_passeport_fields, PASSEPORT_PRIORITY
+    if document_type == "cmu":
+        return merge_cmu_fields, CMU_PRIORITY
+    return merge_permis_fields, PERMIS_PRIORITY

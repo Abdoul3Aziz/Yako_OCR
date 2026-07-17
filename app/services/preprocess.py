@@ -73,8 +73,8 @@ def crop_document_if_possible(image: np.ndarray) -> np.ndarray:
 
     cnt = max(contours, key=cv2.contourArea)
     area_ratio = cv2.contourArea(cnt) / float(small.shape[0] * small.shape[1])
-    # Trop petit = bruit ; trop grand = déjà recadré
-    if area_ratio < 0.18 or area_ratio > 0.95:
+    # Trop petit = élément interne (QR code, photo, puce), pas le document.
+    if area_ratio < 0.30 or area_ratio > 0.95:
         return image
 
     peri = cv2.arcLength(cnt, True)
@@ -83,6 +83,9 @@ def crop_document_if_possible(image: np.ndarray) -> np.ndarray:
         x, y, bw, bh = cv2.boundingRect(cnt)
     else:
         x, y, bw, bh = cv2.boundingRect(approx)
+    aspect = max(bw, bh) / max(1, min(bw, bh))
+    if aspect < 1.20 or aspect > 2.40:
+        return image
 
     # Marges légères
     pad = int(0.02 * max(small.shape[:2]))

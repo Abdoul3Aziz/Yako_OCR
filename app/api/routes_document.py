@@ -7,15 +7,17 @@ from typing import Annotated, Union
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import Field, ValidationError
 
+from app.schemas.cmu import CMUResult
 from app.schemas.cni import CNIResult
 from app.schemas.passeport import PasseportResult
+from app.schemas.permis import PermisResult
 from app.services.pipeline import process_document, validate_upload
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ocr", tags=["Document"])
 
 DocumentResult = Annotated[
-    Union[CNIResult, PasseportResult],
+    Union[CNIResult, PasseportResult, CMUResult, PermisResult],
     Field(discriminator="document_type"),
 ]
 

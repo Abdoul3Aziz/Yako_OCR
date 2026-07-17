@@ -25,6 +25,14 @@ def test_detect_passport_from_mrz():
     assert detect_document_type("", "P<CIVKOFFI<<NGUESSAN<NINA<<<<<<<<") == "passeport"
 
 
+def test_detect_cmu_from_title():
+    assert detect_document_type("COUVERTURE MALADIE UNIVERSELLE", "") == "cmu"
+
+
+def test_detect_permis_from_title():
+    assert detect_document_type("MINISTERE DES TRANSPORTS\nPERMIS DE CONDUIRE", "") == "permis"
+
+
 def test_reject_unknown_document():
     with pytest.raises(ValueError, match="Type de document non reconnu"):
         detect_document_type("PHOTO FLOUE", "TEXTE INCOMPLET")
