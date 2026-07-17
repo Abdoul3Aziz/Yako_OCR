@@ -1,6 +1,7 @@
 (() => {
   const SCHEMAS = {
     cni: [
+      "document_type",
       "numero",
       "nom",
       "prenoms",
@@ -16,6 +17,7 @@
       "lieu_emission",
     ],
     passeport: [
+      "document_type",
       "numero",
       "nom",
       "prenoms",
@@ -31,6 +33,7 @@
   };
 
   const FIELD_LABELS = {
+    document_type: "Type de document",
     numero: "Numéro",
     nom: "Nom",
     prenoms: "Prénoms",
@@ -81,7 +84,7 @@
   const cameraSwitch = document.getElementById("cameraSwitch");
   const cameraTitle = document.getElementById("cameraTitle");
 
-  let documentType = "cni";
+  let documentType = null;
   let lastResult = null;
   let cameraSide = null;
   let cameraStream = null;
@@ -97,8 +100,16 @@
   }
 
   function buildEmptyFields() {
-    const keys = SCHEMAS[documentType] || SCHEMAS.cni;
+    const keys = SCHEMAS[documentType] || [];
     fieldsGrid.innerHTML = "";
+
+    if (!keys.length) {
+      const message = document.createElement("p");
+      message.className = "empty-result";
+      message.textContent =
+        "Le type du document et ses informations apparaîtront après l’analyse.";
+      fieldsGrid.appendChild(message);
+    }
 
     keys.forEach((key, index) => {
       const row = document.createElement("label");
@@ -118,6 +129,7 @@
       input.value = "";
       input.placeholder = "—";
       input.autocomplete = "off";
+      input.readOnly = key === "document_type";
       input.addEventListener("input", syncJsonFromInputs);
 
       row.append(k, input);
@@ -132,7 +144,8 @@
     const data = { document_type: documentType };
     fieldsGrid.querySelectorAll(".field-input").forEach((input) => {
       const value = input.value.trim();
-      data[input.name] = value || null;
+      data[input.name] =
+        input.name === "document_type" ? value.toLowerCase() || null : value || null;
     });
     return data;
   }
@@ -144,6 +157,11 @@
   }
 
   function fillFields(data) {
+    if (SCHEMAS[data.document_type]) {
+      documentType = data.document_type;
+      buildEmptyFields();
+    }
+
     const missing = new Set(data.champs_manquants || []);
     lastResult = data;
 
@@ -153,7 +171,12 @@
       if (!input) return;
 
       const value = data[key];
-      input.value = value === null || value === undefined ? "" : String(value);
+      input.value =
+        value === null || value === undefined
+          ? ""
+          : key === "document_type"
+            ? String(value).toUpperCase()
+            : String(value);
 
       const empty = !input.value;
       row.classList.toggle("is-missing", missing.has(key) || empty);
@@ -185,6 +208,51 @@
     target.zone.classList.add("has-file");
   }
 
+  async function optimizeCameraPhoto(file) {
+    if (!file?.type?.startsWith("image/") || !window.createImageBitmap) {
+      return file;
+    }
+
+    let bitmap;
+    try {
+      try {
+        bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      } catch {
+        bitmap = await createImageBitmap(file);
+      }
+
+      const maxSide = 2200;
+      const longest = Math.max(bitmap.width, bitmap.height);
+      if (longest <= maxSide && file.size <= 2_500_000) {
+        return file;
+      }
+
+      const scale = Math.min(1, maxSide / longest);
+      const width = Math.round(bitmap.width * scale);
+      const height = Math.round(bitmap.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(bitmap, 0, 0, width, height);
+
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.9)
+      );
+      if (!blob) return file;
+      return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+    } catch {
+      return file;
+    } finally {
+      bitmap?.close?.();
+    }
+  }
+
   function clearSide(side) {
     const target = sides[side];
     target.input.value = "";
@@ -207,10 +275,13 @@
       applyFileToSide(side, file);
     });
 
-    target.cameraNative.addEventListener("change", () => {
+    target.cameraNative.addEventListener("change", async () => {
       const file = target.cameraNative.files?.[0];
       if (!file) return;
-      applyFileToSide(side, file);
+      setStatus("Optimisation de la photo…");
+      const optimized = await optimizeCameraPhoto(file);
+      applyFileToSide(side, optimized);
+      setStatus(`Photo ${side} prête.`, "is-ok");
     });
 
     target.zone.addEventListener("dragover", (e) => {
@@ -241,14 +312,21 @@
     cameraVideo.srcObject = null;
   }
 
+  function isMobileDevice() {
+    return (
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 1 && window.matchMedia("(max-width: 900px)").matches)
+    );
+  }
+
   async function startCamera() {
     await stopCamera();
     cameraStream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
         facingMode: { ideal: facingMode },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: 3840 },
+        height: { ideal: 2160 },
       },
     });
     cameraVideo.srcObject = cameraStream;
@@ -256,6 +334,16 @@
   }
 
   async function openCameraModal(side) {
+    // Sur téléphone : privilégier l'appareil photo natif (meilleure netteté + EXIF)
+    if (isMobileDevice()) {
+      sides[side].cameraNative.click();
+      setStatus(
+        "Cadrez le document à plat, bien éclairé, sans reflet — puis validez la photo.",
+        ""
+      );
+      return;
+    }
+
     cameraSide = side;
     cameraTitle.textContent = `Photo — ${side === "recto" ? "Recto" : "Verso"}`;
     cameraModal.hidden = false;
@@ -264,7 +352,6 @@
       await startCamera();
     } catch (err) {
       await closeCameraModal();
-      // Fallback mobile / navigateurs sans getUserMedia fiable
       sides[side].cameraNative.click();
       setStatus(
         "Caméra web indisponible — ouverture de l’appareil photo du téléphone.",
@@ -287,10 +374,12 @@
     cameraCanvas.width = width;
     cameraCanvas.height = height;
     const ctx = cameraCanvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(cameraVideo, 0, 0, width, height);
 
     cameraCanvas.toBlob(
-      (blob) => {
+      async (blob) => {
         if (!blob) {
           setStatus("Échec de la capture photo.", "is-error");
           return;
@@ -300,12 +389,13 @@
           `${cameraSide}-${Date.now()}.jpg`,
           { type: "image/jpeg" }
         );
-        applyFileToSide(cameraSide, file);
+        const optimized = await optimizeCameraPhoto(file);
+        applyFileToSide(cameraSide, optimized);
         setStatus(`Photo ${cameraSide} capturée.`, "is-ok");
         closeCameraModal();
       },
       "image/jpeg",
-      0.92
+      0.95
     );
   }
 
@@ -342,22 +432,11 @@
     if (e.target === cameraModal) closeCameraModal();
   });
 
-  document.querySelectorAll(".doc-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".doc-btn").forEach((b) => {
-        b.classList.toggle("is-active", b === btn);
-        b.setAttribute("aria-selected", b === btn ? "true" : "false");
-      });
-      documentType = btn.dataset.type;
-      resetFields();
-      setStatus(`Type sélectionné : ${documentType === "cni" ? "CNI" : "Passeport"}`);
-    });
-  });
-
   resetBtn.addEventListener("click", () => {
     form.reset();
     clearSide("recto");
     clearSide("verso");
+    documentType = null;
     resetFields();
     setStatus("Formulaire réinitialisé.");
   });
@@ -383,8 +462,7 @@
     }
 
     const base = (apiBaseInput.value || window.location.origin).replace(/\/$/, "");
-    const endpoint = documentType === "cni" ? "/ocr/cni" : "/ocr/passeport";
-    const url = `${base}${endpoint}`;
+    const url = `${base}/ocr/document`;
 
     const body = new FormData();
     body.append("recto", recto);
@@ -416,10 +494,12 @@
 
       fillFields(payload);
       const missing = payload.champs_manquants?.length || 0;
+      const detectedLabel =
+        payload.document_type === "cni" ? "CNI" : "Passeport";
       setStatus(
         missing
-          ? `Extraction terminée — ${missing} champ(s) manquant(s).`
-          : "Extraction terminée avec succès.",
+          ? `${detectedLabel} détecté — ${missing} champ(s) manquant(s).`
+          : `${detectedLabel} détecté — extraction terminée avec succès.`,
         missing ? "" : "is-ok"
       );
     } catch (err) {

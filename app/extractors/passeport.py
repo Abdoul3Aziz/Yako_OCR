@@ -324,10 +324,20 @@ def _extract_layout_recto(normalized: str) -> dict[str, Optional[str]]:
 
     for idx, line in enumerate(lines):
         fixed = _fix_ci_passport_number(line)
-        if fixed and idx + 2 < len(lines):
+        if fixed:
             result["numero"] = fixed
-            cand_nom = _clean_value(lines[idx + 1])
-            cand_prenoms = _clean_value(lines[idx + 2])
+            value_idx = idx + 1
+            # Certains OCR gardent "Nom/Surname" mais perdent le label Prénoms.
+            if value_idx < len(lines) and re.search(
+                r"\bNOM\b|\bSURNAME\b|\bSARD\b",
+                lines[value_idx],
+                re.I,
+            ):
+                value_idx += 1
+            if value_idx + 1 >= len(lines):
+                break
+            cand_nom = _clean_value(lines[value_idx])
+            cand_prenoms = _clean_value(lines[value_idx + 1])
             if (
                 cand_nom
                 and not _is_noise_value(cand_nom)
@@ -540,11 +550,19 @@ def merge_passeport_fields(recto_text: str, verso_text: str) -> dict[str, Option
     numero = _fix_ci_passport_number(mrz.get("numero")) or _fix_ci_passport_number(
         recto.get("numero")
     )
+    ocr_prenoms = recto.get("prenoms")
+    # Sur les layouts sans label "Prénoms", l'heuristique peut reprendre le nom.
+    # La MRZ est alors la source la plus fiable.
+    if ocr_prenoms and ocr_prenoms.upper() in {
+        (recto.get("nom") or "").upper(),
+        (mrz.get("nom") or "").upper(),
+    }:
+        ocr_prenoms = None
 
     merged = {
         "numero": numero,
         "nom": _prefer(recto.get("nom"), mrz.get("nom")),
-        "prenoms": _prefer_prenoms(recto.get("prenoms"), mrz.get("prenoms")),
+        "prenoms": _prefer_prenoms(ocr_prenoms, mrz.get("prenoms")),
         "nationalite": _prefer(recto.get("nationalite"), mrz.get("nationalite")),
         "date_naissance": _prefer(mrz.get("date_naissance"), recto.get("date_naissance")),
         "date_expiration": _prefer(mrz.get("date_expiration"), recto.get("date_expiration")),

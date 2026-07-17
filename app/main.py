@@ -7,8 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes_cni import router as cni_router
-from app.api.routes_passeport import router as passeport_router
+from app.api.routes_document import router as document_router
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -39,7 +38,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OCR Documents Ivoiriens",
     description="API OCR pour l'extraction structurée des documents d'identité.",
-    version="0.3.1",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -51,8 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(cni_router)
-app.include_router(passeport_router)
+app.include_router(document_router)
 
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
@@ -68,8 +66,7 @@ def api_info():
     return {
         "message": "OCR API fonctionne",
         "endpoints": {
-            "cni": "POST /ocr/cni (multipart: recto, verso)",
-            "passeport": "POST /ocr/passeport (multipart: recto, verso)",
+            "document": "POST /ocr/document (détection automatique, multipart: recto, verso)",
             "docs": "/docs",
             "ui": "/",
             "health": "/health",

@@ -12,6 +12,7 @@ from app.extractors.cni import merge_cni_fields
 from app.extractors.passeport import merge_passeport_fields
 from app.schemas.cni import CNIRawText, CNIResult
 from app.schemas.passeport import PasseportRawText, PasseportResult
+from app.services.document_type import DocumentType, detect_document_type
 from app.services.ocr import OCR_BACKEND, ocr_service
 from app.services.preprocess import preprocess_image
 
@@ -32,7 +33,7 @@ _preprocess_pool = ThreadPoolExecutor(max_workers=2)
 # Champs prioritaires: si absents après Rapid → fallback Paddle
 CNI_PRIORITY = ("nom", "prenoms", "numero", "nni", "date_naissance", "sexe")
 PASSEPORT_PRIORITY = ("nom", "prenoms", "numero", "date_naissance", "sexe", "nationalite")
-FALLBACK_MIN_MISSING = int(os.getenv("OCR_FALLBACK_MIN_MISSING", "3"))
+FALLBACK_MIN_MISSING = max(2, int(os.getenv("OCR_FALLBACK_MIN_MISSING", "3")))
 
 
 def validate_upload(filename: Optional[str], content_type: Optional[str]) -> None:
@@ -74,11 +75,19 @@ def _missing_priority(fields: dict[str, Optional[str]], priority: tuple[str, ...
 
 def _should_fallback(fields: dict[str, Optional[str]], priority: tuple[str, ...]) -> bool:
     missing = _missing_priority(fields, priority)
-    if missing:
+    # Paddle reste obligatoire si le résultat ne pourrait pas être validé.
+    if not fields.get("nom"):
         return True
-    # Aussi si beaucoup de champs globaux vides
-    empty = sum(1 for value in fields.values() if not value)
-    return empty >= FALLBACK_MIN_MISSING
+    if "nni" in fields:
+        # CNI : numéro OU NNI suffit pour identifier le document.
+        if not fields.get("numero") and not fields.get("nni"):
+            return True
+    elif not fields.get("numero"):
+        # Passeport : le numéro est obligatoire.
+        return True
+
+    # Un seul champ secondaire manquant ne justifie pas ~15 s de Paddle.
+    return len(missing) >= FALLBACK_MIN_MISSING
 
 
 def _preprocess_pair(recto_bytes: bytes, verso_bytes: bytes):
@@ -213,3 +222,94 @@ def process_passeport(recto_bytes: bytes, verso_bytes: bytes) -> PasseportResult
         )
 
     return result
+
+
+def process_document(
+    recto_bytes: bytes, verso_bytes: bytes
+) -> CNIResult | PasseportResult:
+    """Détecte le document puis applique l'extracteur correspondant, sans refaire l'OCR."""
+    started = time.perf_counter()
+    t0 = time.perf_counter()
+    recto_image, verso_image = _preprocess_pair(recto_bytes, verso_bytes)
+    preprocess_ms = (time.perf_counter() - t0) * 1000
+
+    mode = OCR_BACKEND if OCR_BACKEND in {"rapid", "paddle", "hybrid"} else "hybrid"
+    first_backend = "paddle" if mode == "paddle" else "rapid"
+    t_ocr = time.perf_counter()
+    recto_text, verso_text = ocr_service.extract_texts(
+        [recto_image, verso_image], backend=first_backend
+    )
+    used = first_backend
+    paddle_texts: tuple[str, str] | None = None
+
+    try:
+        document_type = detect_document_type(recto_text, verso_text)
+    except ValueError:
+        if mode != "hybrid":
+            raise
+        logger.info("Type non reconnu par RapidOCR, nouvelle détection avec PaddleOCR")
+        p_recto, p_verso = ocr_service.extract_texts(
+            [recto_image, verso_image], backend="paddle"
+        )
+        paddle_texts = (p_recto, p_verso)
+        document_type = detect_document_type(
+            f"{recto_text}\n{p_recto}",
+            f"{verso_text}\n{p_verso}",
+        )
+        recto_text = _prefer_text(recto_text, p_recto)
+        verso_text = _prefer_text(verso_text, p_verso)
+        used = "hybrid+paddle-detection"
+
+    merge_fn, priority_fields = _document_pipeline(document_type)
+    fields = merge_fn(recto_text, verso_text)
+
+    if mode == "hybrid" and _should_fallback(fields, priority_fields):
+        missing = _missing_priority(fields, priority_fields)
+        logger.info(
+            "Hybrid fallback Paddle (type=%s, champs prioritaires manquants: %s)",
+            document_type,
+            ", ".join(missing) or "plusieurs vides",
+        )
+        try:
+            t_fb = time.perf_counter()
+            if paddle_texts is None:
+                paddle_results = ocr_service.extract_texts(
+                    [recto_image, verso_image], backend="paddle"
+                )
+                paddle_texts = (paddle_results[0], paddle_results[1])
+            p_recto, p_verso = paddle_texts
+            paddle_fields = merge_fn(p_recto, p_verso)
+            fields = _merge_fields(fields, paddle_fields)
+            recto_text = _prefer_text(recto_text, p_recto)
+            verso_text = _prefer_text(verso_text, p_verso)
+            used = f"hybrid+paddle({(time.perf_counter() - t_fb) * 1000:.0f}ms)"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Fallback Paddle impossible: %s", exc)
+
+    if document_type == "cni":
+        result: CNIResult | PasseportResult = CNIResult(
+            **fields,
+            raw_text=CNIRawText(recto=recto_text, verso=verso_text),
+        )
+    else:
+        result = PasseportResult(
+            **fields,
+            raw_text=PasseportRawText(recto=recto_text, verso=verso_text),
+        )
+
+    logger.info(
+        "Document détecté=%s traité en %.0f ms "
+        "(preprocess=%.0f ms, ocr+extract=%.0f ms, backend=%s)",
+        document_type,
+        (time.perf_counter() - started) * 1000,
+        preprocess_ms,
+        (time.perf_counter() - t_ocr) * 1000,
+        used,
+    )
+    return result
+
+
+def _document_pipeline(document_type: DocumentType):
+    if document_type == "cni":
+        return merge_cni_fields, CNI_PRIORITY
+    return merge_passeport_fields, PASSEPORT_PRIORITY
