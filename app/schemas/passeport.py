@@ -31,6 +31,8 @@ class PasseportResult(BaseModel):
     taille: Optional[str] = None
     photo: Optional[DocumentAsset] = None
     signature: Optional[DocumentAsset] = None
+    recto: Optional[DocumentAsset] = None
+    verso: Optional[DocumentAsset] = None
     champs_manquants: list[str] = Field(default_factory=list)
     raw_text: PasseportRawText = Field(default_factory=PasseportRawText)
 

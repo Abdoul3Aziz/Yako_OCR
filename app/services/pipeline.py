@@ -12,6 +12,7 @@ from app.extractors.cmu import merge_cmu_fields
 from app.extractors.cni import merge_cni_fields
 from app.extractors.passeport import merge_passeport_fields
 from app.extractors.permis import merge_permis_fields
+from app.schemas.assets import encode_upload_asset
 from app.schemas.cmu import CMURawText, CMUResult
 from app.schemas.cni import CNIRawText, CNIResult
 from app.schemas.passeport import PasseportRawText, PasseportResult
@@ -255,7 +256,11 @@ def process_passeport(recto_bytes: bytes, verso_bytes: bytes) -> PasseportResult
 
 
 def process_document(
-    recto_bytes: bytes, verso_bytes: bytes
+    recto_bytes: bytes,
+    verso_bytes: bytes,
+    *,
+    recto_content_type: str | None = None,
+    verso_content_type: str | None = None,
 ) -> CNIResult | PasseportResult | CMUResult | PermisResult:
     """Détecte le document puis applique l'extracteur correspondant, sans refaire l'OCR."""
     started = time.perf_counter()
@@ -322,28 +327,36 @@ def process_document(
             logger.warning("Fallback Paddle impossible: %s", exc)
 
     assets = extract_document_assets(document_type, recto_source, verso_source)
+    upload_assets = {
+        "recto": encode_upload_asset(recto_bytes, recto_content_type),
+        "verso": encode_upload_asset(verso_bytes, verso_content_type),
+    }
     if document_type == "cni":
         result: CNIResult | PasseportResult | CMUResult | PermisResult = CNIResult(
             **fields,
             **assets,
+            **upload_assets,
             raw_text=CNIRawText(recto=recto_text, verso=verso_text),
         )
     elif document_type == "passeport":
         result = PasseportResult(
             **fields,
             **assets,
+            **upload_assets,
             raw_text=PasseportRawText(recto=recto_text, verso=verso_text),
         )
     elif document_type == "cmu":
         result = CMUResult(
             **fields,
             **assets,
+            **upload_assets,
             raw_text=CMURawText(recto=recto_text, verso=verso_text),
         )
     else:
         result = PermisResult(
             **fields,
             **assets,
+            **upload_assets,
             raw_text=PermisRawText(recto=recto_text, verso=verso_text),
         )
 

@@ -25,6 +25,8 @@ class PermisResult(BaseModel):
     groupe_sanguin: Optional[str] = None
     photo: Optional[DocumentAsset] = None
     signature: Optional[DocumentAsset] = None
+    recto: Optional[DocumentAsset] = None
+    verso: Optional[DocumentAsset] = None
     champs_manquants: list[str] = Field(default_factory=list)
     raw_text: PermisRawText = Field(default_factory=PermisRawText)
 

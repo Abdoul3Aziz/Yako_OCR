@@ -41,7 +41,12 @@ async def ocr_document(
         if not recto_bytes or not verso_bytes:
             raise ValueError("Les fichiers recto et verso sont obligatoires.")
 
-        result = process_document(recto_bytes, verso_bytes)
+        result = process_document(
+            recto_bytes,
+            verso_bytes,
+            recto_content_type=recto.content_type,
+            verso_content_type=verso.content_type,
+        )
         logger.info(
             "POST /ocr/document terminé en %.0f ms (type=%s)",
             (time.perf_counter() - request_started) * 1000,

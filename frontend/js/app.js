@@ -193,9 +193,14 @@
 
   function renderDocumentAssets(data) {
     assetsGrid.innerHTML = "";
-    const labels = { photo: "Photo", signature: "Signature" };
+    const labels = {
+      photo: "Photo",
+      signature: "Signature",
+      recto: "Recto reçu",
+      verso: "Verso reçu",
+    };
 
-    ["photo", "signature"].forEach((key) => {
+    ["photo", "signature", "recto", "verso"].forEach((key) => {
       const asset = data[key];
       if (!asset?.base64 || !asset?.content_type) return;
 
@@ -203,7 +208,7 @@
       figure.className = `asset-card asset-${key}`;
       const image = document.createElement("img");
       image.src = `data:${asset.content_type};base64,${asset.base64}`;
-      image.alt = `${labels[key]} extraite du document`;
+      image.alt = `${labels[key]} du document`;
       const caption = document.createElement("figcaption");
       caption.textContent = labels[key];
       figure.append(image, caption);
