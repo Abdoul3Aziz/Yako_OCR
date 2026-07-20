@@ -20,7 +20,11 @@ from app.schemas.permis import PermisRawText, PermisResult
 from app.services.document_assets import extract_document_assets
 from app.services.document_type import DocumentType, detect_document_type
 from app.services.ocr import OCR_BACKEND, ocr_service
-from app.services.preprocess import preprocess_image, preprocess_image_with_source
+from app.services.preprocess import (
+    prepare_cni_demographics_roi,
+    preprocess_image,
+    preprocess_image_with_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +41,15 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 _preprocess_pool = ThreadPoolExecutor(max_workers=2)
 
 # Champs prioritaires: si absents après Rapid → fallback Paddle
-CNI_PRIORITY = ("nom", "prenoms", "numero", "nni", "date_naissance", "sexe")
+CNI_PRIORITY = ("nom", "prenoms", "numero", "nni", "date_naissance", "sexe", "taille")
+# Zone recto fond vert: taille / date / sexe souvent perdus → ROI dédié
+CNI_DEMOGRAPHICS_FIELDS = (
+    "taille",
+    "date_naissance",
+    "sexe",
+    "nationalite",
+    "lieu_naissance",
+)
 PASSEPORT_PRIORITY = ("nom", "prenoms", "numero", "date_naissance", "sexe", "nationalite")
 CMU_PRIORITY = (
     "nom",
@@ -55,7 +67,7 @@ PERMIS_PRIORITY = (
     "date_delivrance",
     "lieu_delivrance",
 )
-FALLBACK_MIN_MISSING = max(2, int(os.getenv("OCR_FALLBACK_MIN_MISSING", "3")))
+FALLBACK_MIN_MISSING = max(1, int(os.getenv("OCR_FALLBACK_MIN_MISSING", "2")))
 
 
 def validate_upload(filename: Optional[str], content_type: Optional[str]) -> None:
@@ -109,8 +121,62 @@ def _should_fallback(fields: dict[str, Optional[str]], priority: tuple[str, ...]
     if not identity:
         return True
 
-    # Un seul champ secondaire manquant ne justifie pas ~15 s de Paddle.
+    # Sur passeport, date de naissance / sexe absents → souvent MRZ mal lue : Paddle aide.
+    if "date_naissance" in priority and not fields.get("date_naissance"):
+        return True
+    if "sexe" in priority and not fields.get("sexe"):
+        return True
+    # CNI: taille souvent absente après enhance → on tente aussi Paddle.
+    if "taille" in priority and not fields.get("taille"):
+        return True
+
     return len(missing) >= FALLBACK_MIN_MISSING
+
+
+def _needs_cni_demographics_roi(fields: dict[str, Optional[str]]) -> bool:
+    return any(not fields.get(name) for name in CNI_DEMOGRAPHICS_FIELDS)
+
+
+def _enrich_cni_demographics_roi(
+    recto_source,
+    recto_text: str,
+    verso_text: str,
+    fields: dict[str, Optional[str]],
+    *,
+    backend: str,
+) -> tuple[str, dict[str, Optional[str]]]:
+    """Re-OCR la zone date/sexe/taille quand le contraste global a perdu ces champs."""
+    if not _needs_cni_demographics_roi(fields):
+        return recto_text, fields
+    try:
+        from app.extractors.cni import extract_recto
+
+        roi = prepare_cni_demographics_roi(recto_source)
+        roi_text = ocr_service.extract_texts([roi], backend=backend)[0]
+        if not roi_text.strip():
+            return recto_text, fields
+        # Extraire seulement le ROI (pas concaténer avant) pour ne pas
+        # figer un prénom tronqué type « NDR » avant « MAHI LANDRY ».
+        roi_fields = extract_recto(roi_text)
+        enriched = dict(fields)
+        for key, value in roi_fields.items():
+            if not value:
+                continue
+            current = enriched.get(key)
+            if not current:
+                enriched[key] = value
+            elif key in {"prenoms", "lieu_naissance"} and len(str(value)) > len(str(current)):
+                enriched[key] = value
+        combined = f"{recto_text}\n{roi_text}".strip()
+        logger.info(
+            "ROI démographique CNI appliqué (manquants avant: %s)",
+            ", ".join(n for n in CNI_DEMOGRAPHICS_FIELDS if not fields.get(n))
+            or "aucun",
+        )
+        return combined, enriched
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ROI démographique CNI impossible: %s", exc)
+        return recto_text, fields
 
 
 def _preprocess_pair(recto_bytes: bytes, verso_bytes: bytes):
@@ -135,7 +201,12 @@ def _ocr_both_faces(
     priority_fields: tuple[str, ...],
 ) -> tuple[str, str, dict[str, Optional[str]], dict[str, float], str]:
     t0 = time.perf_counter()
-    recto_image, verso_image = _preprocess_pair(recto_bytes, verso_bytes)
+    (
+        recto_image,
+        verso_image,
+        recto_source,
+        _verso_source,
+    ) = _preprocess_pair_with_sources(recto_bytes, verso_bytes)
     preprocess_ms = (time.perf_counter() - t0) * 1000
 
     mode = OCR_BACKEND if OCR_BACKEND in {"rapid", "paddle", "hybrid"} else "hybrid"
@@ -173,6 +244,19 @@ def _ocr_both_faces(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Fallback Paddle impossible: %s", exc)
                 used = "rapid"
+
+    if merge_fn is merge_cni_fields:
+        had_taille = bool(fields.get("taille"))
+        roi_backend = "paddle" if mode in {"paddle", "hybrid"} else "rapid"
+        recto_text, fields = _enrich_cni_demographics_roi(
+            recto_source,
+            recto_text,
+            verso_text,
+            fields,
+            backend=roi_backend,
+        )
+        if not had_taille and fields.get("taille"):
+            used = f"{used}+roi"
 
     ocr_ms = (time.perf_counter() - t1) * 1000
     timings = {"preprocess_ms": preprocess_ms, "ocr_ms": ocr_ms}
@@ -325,6 +409,19 @@ def process_document(
             used = f"hybrid+paddle({(time.perf_counter() - t_fb) * 1000:.0f}ms)"
         except Exception as exc:  # noqa: BLE001
             logger.warning("Fallback Paddle impossible: %s", exc)
+
+    if document_type == "cni":
+        had_taille = bool(fields.get("taille"))
+        roi_backend = "paddle" if mode in {"paddle", "hybrid"} else first_backend
+        recto_text, fields = _enrich_cni_demographics_roi(
+            recto_source,
+            recto_text,
+            verso_text,
+            fields,
+            backend=roi_backend,
+        )
+        if not had_taille and fields.get("taille"):
+            used = f"{used}+roi"
 
     assets = extract_document_assets(document_type, recto_source, verso_source)
     upload_assets = {

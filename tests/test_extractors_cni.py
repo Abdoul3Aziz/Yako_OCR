@@ -64,6 +64,16 @@ AKOSSI<<HABIB<WILFRIED<<<<<<<<
 """
 
 
+def test_taille_ocr_variants():
+    """OCR CNI récente: Tailh/,61 ou lignes séparées."""
+    assert extract_recto("TAILLE\n1,61")["taille"] == "1,61"
+    assert extract_recto("Tailh\n,61")["taille"] == "1,61"
+    assert extract_recto("Tgille\n1.61")["taille"] == "1,61"
+    assert extract_recto("SEXE\nM\nTAILLE\n1,61\nNATIONALITE\nIVOIRIENNE")["taille"] == "1,61"
+    # Blob collé historique
+    assert extract_recto("7/09/1985 M1,86 IVOIRIENNE")["taille"] == "1,86"
+
+
 def test_extract_recto_fields():
     data = extract_recto(RECTO_SAMPLE)
     assert data["numero"] == "C1234567890"

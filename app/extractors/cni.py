@@ -8,11 +8,14 @@ from typing import Optional
 
 DATE_PATTERN = r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})"
 
+# OCR fréquent: Tailh / Tgille / TA1LLE à la place de TAILLE
+TAILLE_LABEL = r"T(?:AILLE|AILH|GILLE|A1LLE|AlLLE|AILLF|AILIE|AILL)"
+
 LABEL_LINE = re.compile(
     r"^(?:"
     r"REPUBLIQUE.*|CARTE\s+NATIONALE.*"
     r"|PRENOM\(S\)|PRENOMS?|NOM(?:\s+DE\s+FAMILLE)?"
-    r"|DATE\s+DE\s+NAISSANCE|SEXE|TAILLE|SEXETAILLE|NATIONALITE"
+    r"|DATE\s+DE\s+NAISSANCE|SEXE|" + TAILLE_LABEL + r"|SEXETAILLE|NATIONALITE"
     r"|LIEU\s+DE\s+NAISSANCE|DATE\s+D[' ]?EXPIRATION|DATE\s+D[' ]?EMISSION"
     r"|NNI|PROFESSION|SIGNATURE.*|UNION.*"
     r"|LE\s+DIRECTEUR.*|DE\s+L[' ]?ETAT.*"
@@ -122,6 +125,66 @@ def _value_after_label(text: str, label_patterns: list[str]) -> Optional[str]:
     return None
 
 
+def _normalize_taille_value(value: Optional[str]) -> Optional[str]:
+    """Normalise une taille OCR (1,61 / 1.61 / ,61 / 161 cm)."""
+    if not value:
+        return None
+    text = _clean_value(str(value))
+    text = re.sub(r"\s*M(?:ETRE)?S?\s*$", "", text, flags=re.IGNORECASE).strip()
+    text = text.replace(" ", "")
+
+    # OCR coupe souvent le « 1 » initial: ",61" / ".61"
+    if re.fullmatch(r"[.,]\d{1,2}", text):
+        text = "1" + text
+
+    # Centimètres sans séparateur: 161 → 1,61
+    if re.fullmatch(r"[12]\d{2}", text):
+        cm = int(text)
+        if 100 <= cm <= 250:
+            return f"{cm / 100:.2f}".replace(".", ",")
+
+    match = re.fullmatch(r"([12])[.,](\d{1,2})", text)
+    if match:
+        meters = float(f"{match.group(1)}.{match.group(2)}")
+        if 1.0 <= meters <= 2.5:
+            return f"{meters:.2f}".replace(".", ",")
+    return None
+
+
+def _find_taille(text: str) -> Optional[str]:
+    """Taille via label (tolérant OCR), blob démographique, ou motif 1,xx isolé."""
+    labeled = _value_after_label(text, [rf"\b{TAILLE_LABEL}\b"])
+    normalized = _normalize_taille_value(labeled)
+    if normalized:
+        return normalized
+    # Valeur collée au label: TAILLE1,61 / Tailh,61
+    glued = _first_match_simple(
+        [
+            rf"\b{TAILLE_LABEL}\s*[:\-]?\s*([0-9]*[.,][0-9]{{1,2}})\b",
+            rf"\b{TAILLE_LABEL}\s*[:\-]?\s*([12]\d{{2}})\b",
+        ],
+        text,
+    )
+    normalized = _normalize_taille_value(glued)
+    if normalized:
+        return normalized
+
+    # Motif hauteur plausible près de SEXE / NATIONALITE / date
+    for pattern in (
+        rf"{DATE_PATTERN}\s*[MF]\s*([0-9]+[.,][0-9]{{1,2}})",
+        r"\b[MF]\s*([0-9]+[.,][0-9]{1,2})\b",
+        r"(?m)^\s*([0-9]*[.,][0-9]{1,2})\s*$",
+        r"\b(1[.,]\d{2})\b",
+    ):
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if not match:
+            continue
+        normalized = _normalize_taille_value(match.group(match.lastindex or 1))
+        if normalized:
+            return normalized
+    return None
+
+
 def _parse_demographics_blob(text: str) -> dict[str, Optional[str]]:
     """Parse '17/09/1985 M1,86 IVOIRIENNE' (champs souvent collés par l'OCR)."""
     result: dict[str, Optional[str]] = {
@@ -144,7 +207,7 @@ def _parse_demographics_blob(text: str) -> dict[str, Optional[str]]:
     if match:
         result["date_naissance"] = _normalize_date(match.group(1))
         result["sexe"] = match.group(2).upper()
-        result["taille"] = match.group(3).replace(".", ",")
+        result["taille"] = _normalize_taille_value(match.group(3))
         result["nationalite"] = match.group(4).upper()
     return result
 
@@ -287,10 +350,7 @@ def extract_recto(text: str) -> dict[str, Optional[str]]:
         [r"\bSEXE\s*[:\-]?\s*([MF])\b", r"\bSEX\s*[:\-]?\s*([MF])\b"],
         normalized,
     )
-    taille = demo["taille"] or _first_match_simple(
-        [r"\bTAILLE\s*[:\-]?\s*([0-9]+[.,][0-9]{1,2})\b"],
-        normalized,
-    )
+    taille = demo["taille"] or _find_taille(normalized)
 
     nationalite = demo["nationalite"]
     if not nationalite:

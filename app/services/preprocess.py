@@ -211,3 +211,19 @@ def preprocess_image_with_source(
 def preprocess_image(image_bytes: bytes) -> np.ndarray:
     image, _ = preprocess_image_with_source(image_bytes)
     return image
+
+
+def prepare_cni_demographics_roi(image: np.ndarray) -> np.ndarray:
+    """
+    Zone centrale droite du recto CNI (date/sexe/taille/nationalité).
+    Sans contraste agressif: l'enhance global masque souvent « 1,61 » sur fond vert.
+    """
+    h, w = image.shape[:2]
+    x0, x1 = int(w * 0.28), int(w * 0.95)
+    y0, y1 = int(h * 0.22), int(h * 0.75)
+    roi = image[y0:y1, x0:x1]
+    if roi.size == 0:
+        return image
+    # Upscale pour aider la détection des petits chiffres (1,61)
+    scale = 2.0 if max(roi.shape[:2]) < 900 else 1.5
+    return cv2.resize(roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
