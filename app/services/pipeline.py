@@ -16,9 +16,10 @@ from app.schemas.cmu import CMURawText, CMUResult
 from app.schemas.cni import CNIRawText, CNIResult
 from app.schemas.passeport import PasseportRawText, PasseportResult
 from app.schemas.permis import PermisRawText, PermisResult
+from app.services.document_assets import extract_document_assets
 from app.services.document_type import DocumentType, detect_document_type
 from app.services.ocr import OCR_BACKEND, ocr_service
-from app.services.preprocess import preprocess_image
+from app.services.preprocess import preprocess_image, preprocess_image_with_source
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,14 @@ def _preprocess_pair(recto_bytes: bytes, verso_bytes: bytes):
     fut_recto = _preprocess_pool.submit(preprocess_image, recto_bytes)
     fut_verso = _preprocess_pool.submit(preprocess_image, verso_bytes)
     return fut_recto.result(), fut_verso.result()
+
+
+def _preprocess_pair_with_sources(recto_bytes: bytes, verso_bytes: bytes):
+    fut_recto = _preprocess_pool.submit(preprocess_image_with_source, recto_bytes)
+    fut_verso = _preprocess_pool.submit(preprocess_image_with_source, verso_bytes)
+    (recto_ocr, recto_source) = fut_recto.result()
+    (verso_ocr, verso_source) = fut_verso.result()
+    return recto_ocr, verso_ocr, recto_source, verso_source
 
 
 def _ocr_both_faces(
@@ -251,7 +260,12 @@ def process_document(
     """Détecte le document puis applique l'extracteur correspondant, sans refaire l'OCR."""
     started = time.perf_counter()
     t0 = time.perf_counter()
-    recto_image, verso_image = _preprocess_pair(recto_bytes, verso_bytes)
+    (
+        recto_image,
+        verso_image,
+        recto_source,
+        verso_source,
+    ) = _preprocess_pair_with_sources(recto_bytes, verso_bytes)
     preprocess_ms = (time.perf_counter() - t0) * 1000
 
     mode = OCR_BACKEND if OCR_BACKEND in {"rapid", "paddle", "hybrid"} else "hybrid"
@@ -307,24 +321,29 @@ def process_document(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Fallback Paddle impossible: %s", exc)
 
+    assets = extract_document_assets(document_type, recto_source, verso_source)
     if document_type == "cni":
         result: CNIResult | PasseportResult | CMUResult | PermisResult = CNIResult(
             **fields,
+            **assets,
             raw_text=CNIRawText(recto=recto_text, verso=verso_text),
         )
     elif document_type == "passeport":
         result = PasseportResult(
             **fields,
+            **assets,
             raw_text=PasseportRawText(recto=recto_text, verso=verso_text),
         )
     elif document_type == "cmu":
         result = CMUResult(
             **fields,
+            **assets,
             raw_text=CMURawText(recto=recto_text, verso=verso_text),
         )
     else:
         result = PermisResult(
             **fields,
+            **assets,
             raw_text=PermisRawText(recto=recto_text, verso=verso_text),
         )
 

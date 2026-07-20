@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OCR Documents Ivoiriens",
     description="API OCR pour l'extraction structurée des documents d'identité.",
-    version="0.5.0",
+    version="0.6.0",
     lifespan=lifespan,
 )
 

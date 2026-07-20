@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/css/styles.css" />
+    <link rel="stylesheet" href="/static/css/styles.css?v=0.7.6" />
   </head>
   <body>
     <div class="page">
@@ -127,6 +127,11 @@
             <div id="fieldsGrid" class="fields-grid"></div>
           </form>
 
+          <section id="documentAssets" class="document-assets" hidden>
+            <h3>Éléments extraits</h3>
+            <div id="assetsGrid" class="assets-grid"></div>
+          </section>
+
           <details class="raw-block">
             <summary>JSON brut</summary>
             <pre id="jsonOut">{}</pre>
@@ -141,7 +146,16 @@
           <h3 id="cameraTitle">Prendre une photo</h3>
           <button type="button" id="cameraClose" class="btn-ghost">Fermer</button>
         </div>
-        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div id="cameraStage" class="camera-stage">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <div id="cameraFrame" class="camera-frame">
+            <span class="camera-corner tl"></span>
+            <span class="camera-corner tr"></span>
+            <span class="camera-corner bl"></span>
+            <span class="camera-corner br"></span>
+          </div>
+          <p id="cameraGuide" class="camera-guide">Placez le document dans le cadre</p>
+        </div>
         <canvas id="cameraCanvas" hidden></canvas>
         <div class="camera-actions">
           <button type="button" id="cameraCapture" class="btn-primary">Capturer</button>
@@ -150,6 +164,6 @@
       </div>
     </div>
 
-    <script src="/static/js/app.js?v=0.5.0"></script>
+    <script src="/static/js/app.js?v=0.7.4"></script>
   </body>
 </html>

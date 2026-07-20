@@ -5,6 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.assets import DocumentAsset
+
 
 class CMURawText(BaseModel):
     recto: str = ""
@@ -18,6 +20,8 @@ class CMUResult(BaseModel):
     prenoms: Optional[str] = None
     date_naissance: Optional[str] = None
     date_emission: Optional[str] = None
+    photo: Optional[DocumentAsset] = None
+    signature: Optional[DocumentAsset] = None
     champs_manquants: list[str] = Field(default_factory=list)
     raw_text: CMURawText = Field(default_factory=CMURawText)
 

@@ -5,6 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.assets import DocumentAsset
+
 
 class PermisRawText(BaseModel):
     recto: str = ""
@@ -21,6 +23,8 @@ class PermisResult(BaseModel):
     lieu_delivrance: Optional[str] = None
     numero_permis: Optional[str] = None
     groupe_sanguin: Optional[str] = None
+    photo: Optional[DocumentAsset] = None
+    signature: Optional[DocumentAsset] = None
     champs_manquants: list[str] = Field(default_factory=list)
     raw_text: PermisRawText = Field(default_factory=PermisRawText)
 
