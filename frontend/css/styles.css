@@ -75,13 +75,16 @@ body::before {
   gap: 0.85rem;
 }
 
-.brand-mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background:
-    linear-gradient(145deg, #f0a36a, var(--accent) 45%, #2f8c60);
-  box-shadow: 0 8px 20px rgba(217, 106, 43, 0.35);
+.brand-logo {
+  display: block;
+  height: 48px;
+  width: auto;
+  max-width: min(180px, 42vw);
+  object-fit: contain;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.25rem 0.4rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
 }
 
 .brand-name {
@@ -698,6 +701,11 @@ h2 {
 }
 
 @media (max-width: 640px) {
+  .brand-logo {
+    height: 40px;
+    max-width: min(140px, 38vw);
+  }
+
   .drop-grid {
     grid-template-columns: 1fr;
   }
