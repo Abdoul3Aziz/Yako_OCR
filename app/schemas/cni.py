@@ -5,6 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.assets import DocumentAsset
+
 
 CRITICAL_FIELDS = ("nom",)
 IDENTITY_FIELDS = ("numero", "nni")
@@ -30,6 +32,10 @@ class CNIResult(BaseModel):
     profession: Optional[str] = None
     date_emission: Optional[str] = None
     lieu_emission: Optional[str] = None
+    photo: Optional[DocumentAsset] = None
+    signature: Optional[DocumentAsset] = None
+    recto: Optional[DocumentAsset] = None
+    verso: Optional[DocumentAsset] = None
     champs_manquants: list[str] = Field(default_factory=list)
     raw_text: CNIRawText = Field(default_factory=CNIRawText)
 

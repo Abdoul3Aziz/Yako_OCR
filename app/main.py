@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -7,8 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes_cni import router as cni_router
-from app.api.routes_passeport import router as passeport_router
+from app.api.routes_document import router as document_router
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -19,27 +19,34 @@ logging.basicConfig(
 logger = logging.getLogger("yako_ocr")
 
 
+def _warmup_enabled() -> bool:
+    return os.getenv("OCR_WARMUP", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Précharge PaddleOCR au démarrage pour éviter le 1er appel très lent
-    from app.services.ocr import ocr_service
+    # Précharge OCR au démarrage (désactivable via OCR_WARMUP=0 sur cPanel)
+    if _warmup_enabled():
+        from app.services.ocr import ocr_service
 
-    try:
-        import time
+        try:
+            import time
 
-        logger.info("Warmup OCR en cours...")
-        t0 = time.perf_counter()
-        ocr_service.warmup()
-        logger.info("Warmup OCR terminé en %.0f ms", (time.perf_counter() - t0) * 1000)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Warmup OCR ignoré: %s", exc)
+            logger.info("Warmup OCR en cours...")
+            t0 = time.perf_counter()
+            ocr_service.warmup()
+            logger.info("Warmup OCR terminé en %.0f ms", (time.perf_counter() - t0) * 1000)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Warmup OCR ignoré: %s", exc)
+    else:
+        logger.info("Warmup OCR désactivé (OCR_WARMUP=0)")
     yield
 
 
 app = FastAPI(
     title="OCR Documents Ivoiriens",
     description="API OCR pour l'extraction structurée des documents d'identité.",
-    version="0.3.1",
+    version="0.6.0",
     lifespan=lifespan,
 )
 
@@ -51,8 +58,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(cni_router)
-app.include_router(passeport_router)
+app.include_router(document_router)
 
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
@@ -68,8 +74,7 @@ def api_info():
     return {
         "message": "OCR API fonctionne",
         "endpoints": {
-            "cni": "POST /ocr/cni (multipart: recto, verso)",
-            "passeport": "POST /ocr/passeport (multipart: recto, verso)",
+            "document": "POST /ocr/document (détection automatique, multipart: recto, verso)",
             "docs": "/docs",
             "ui": "/",
             "health": "/health",

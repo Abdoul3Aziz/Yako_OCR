@@ -4,21 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Yako OCR — Documents d'identité</title>
+    <link rel="icon" type="image/png" href="/static/assets/favicon_yako.png" />
+    <link rel="apple-touch-icon" href="/static/assets/favicon_yako.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/css/styles.css" />
+    <link rel="stylesheet" href="/static/css/styles.css?v=0.7.8" />
   </head>
   <body>
     <div class="page">
       <header class="top">
         <div class="brand">
+          <img
+            class="brand-logo"
+            src="/static/assets/Logo_yako_blanc.png"
+            alt="Yako Africa Assurances Vie"
+            width="168"
+            height="48"
+          />
           <div>
-            <p class="brand-name">Yako OCR</p>
-            <p class="brand-tag">Extraction structurée CNI &amp; Passeport</p>
+            <p class="brand-name">OCR</p>
+            <p class="brand-tag">Extraction structurée des documents d'identité</p>
           </div>
         </div>
         <label class="api-field">
@@ -38,15 +47,11 @@
           <h1>Analyser un document</h1>
           <p class="lead">
             Importez une image ou prenez une photo du recto et du verso, puis lancez l’OCR.
+            Astuce photo : document à plat, lumière homogène, sans reflet, texte bien lisible.
           </p>
 
-          <div class="doc-switch" role="tablist" aria-label="Type de document">
-            <button type="button" class="doc-btn is-active" data-type="cni" role="tab" aria-selected="true">
-              CNI
-            </button>
-            <button type="button" class="doc-btn" data-type="passeport" role="tab" aria-selected="false">
-              Passeport
-            </button>
+          <div class="doc-switch" aria-label="Détection du type de document">
+            <span class="doc-auto">Détection automatique : CNI, Passeport, CMU ou Permis</span>
           </div>
 
           <form id="ocrForm" class="upload-form">
@@ -131,6 +136,11 @@
             <div id="fieldsGrid" class="fields-grid"></div>
           </form>
 
+          <section id="documentAssets" class="document-assets" hidden>
+            <h3>Éléments extraits</h3>
+            <div id="assetsGrid" class="assets-grid"></div>
+          </section>
+
           <details class="raw-block">
             <summary>JSON brut</summary>
             <pre id="jsonOut">{}</pre>
@@ -145,7 +155,16 @@
           <h3 id="cameraTitle">Prendre une photo</h3>
           <button type="button" id="cameraClose" class="btn-ghost">Fermer</button>
         </div>
-        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div id="cameraStage" class="camera-stage">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <div id="cameraFrame" class="camera-frame">
+            <span class="camera-corner tl"></span>
+            <span class="camera-corner tr"></span>
+            <span class="camera-corner bl"></span>
+            <span class="camera-corner br"></span>
+          </div>
+          <p id="cameraGuide" class="camera-guide">Placez le document dans le cadre</p>
+        </div>
         <canvas id="cameraCanvas" hidden></canvas>
         <div class="camera-actions">
           <button type="button" id="cameraCapture" class="btn-primary">Capturer</button>
@@ -154,6 +173,6 @@
       </div>
     </div>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=0.7.7"></script>
   </body>
 </html>

@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+ENV/
+
+# Variables / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# IDE / OS
+.cursor/
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Tests / couverture
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Logs & runtime
+*.log
+logs/
+tmp/
+temp/
+uploads/
+
+# Modèles / caches OCR téléchargés localement
+.paddlex/
+.paddleocr/
+~/.rapidocr/
+
+# Docker / déploiements anciens (ne plus utiliser)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+requirements-docker.txt
+render.yaml
+
+# Fichiers générés frontend éventuels
+frontend/node_modules/

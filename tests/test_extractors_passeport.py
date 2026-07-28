@@ -127,3 +127,30 @@ def test_real_ocr_passeport():
     assert fields["profession"] == "FONCTIONNAIRE"
     assert fields["adresse"] == "20BP121ABJ20"
     assert fields["taille"] == "166"
+
+
+# OCR réel sans label "Prénoms" : la MRZ doit empêcher OUATTARA → prénoms.
+RECTO_OUATTARA = """
+RÉPUBLIQUE DE COTE D'IVOIRE
+Passeport
+P
+CIV
+21AF80987
+Nom/Sard
+OUATTARA
+FOUSSENY
+Nationalite/N
+IVOIRIENNE
+P<CIVOUATTARA<<FUSSENY<<<<<<<<<<<<<<<<
+21AF809870CIV0109017M2704058<<<<<<<<<<<
+"""
+
+
+def test_passeport_mrz_prenoms_prioritaire_sur_nom():
+    fields = merge_passeport_fields(RECTO_OUATTARA, "COMMERCIAL\n191")
+    assert fields["numero"] == "21AF80987"
+    assert fields["nom"] == "OUATTARA"
+    assert fields["prenoms"] == "Fousseny"
+    assert fields["date_naissance"] == "2001-09-01"
+    assert fields["date_expiration"] == "2027-04-05"
+    assert fields["sexe"] == "M"

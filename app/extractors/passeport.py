@@ -7,7 +7,7 @@ from typing import Optional
 
 
 DATE_PATTERN = (
-    r"(\d{1,2}[./\- ]\d{1,2}[./\- ]\d{2,4}|\d{4}-\d{2}-\d{2})"
+    r"(\d{1,2}\s*[./\-]?\s*\d{1,2}\s*[./\-]?\s*\d{2,4}|\d{4}-\d{2}-\d{2})"
 )
 
 # Labels stricts + variantes OCR bruitées
@@ -17,7 +17,7 @@ LABEL_LINE = re.compile(
     r"|CODE\s+DU\s+PAY.*|COUNTRY\s+CODE|CODE.*"
     r"|NOM|SURNAME|PRENOMS?|GIVEN\s+NAMES?"
     r"|NATIONALITE|NATIONALITY"
-    r"|DATE\s+DE\s+NAISSANCE.*|DATE\s+OF\s+BIRTH.*|DACE\s+DE\s+NAL.*"
+    r"|DATE\s+DE\s+NAISSANCE.*|DATE\s+OF\s+BIRTH.*|DACE\s+DE\s+NAL.*|DATE\s+DE\s+NALSSANCE.*"
     r"|SEXE|SEX|LIEU\s+DE\s+NAISSANCE.*|PLACE\s+OF\s+BIRTH.*|BLOCE\s+OF.*"
     r"|DATE\s+DE\s+DELIVRANCE.*|DATE\s+OF\s+ISSUE.*|DASE\s+DE\s+DELL.*"
     r"|DATE\s+D[' ]?EXPIRATION.*|DATE\s+OF\s+EXPIRY.*|DATE\s+D[' ]?EXPIC.*"
@@ -43,6 +43,11 @@ def normalize_ocr_text(text: str) -> str:
     # Corrections fréquentes OCR passeport CI
     replacements = {
         "DACE DE NALSANCE": "DATE DE NAISSANCE",
+        "DATE DE NALSSANCE": "DATE DE NAISSANCE",
+        "DATE DE NABSANCE": "DATE DE NAISSANCE",
+        "DUCE DE NABSANCE": "DATE DE NAISSANCE",
+        "DANE DE ABSANCE": "DATE DE NAISSANCE",
+        "DATE DE NAISSANCE": "DATE DE NAISSANCE",
         "DATE D'EXPICATLON": "DATE D'EXPIRATION",
         "DATE D'EXPICATI0N": "DATE D'EXPIRATION",
         "DASE DE DELLURANCE": "DATE DE DELIVRANCE",
@@ -52,6 +57,9 @@ def normalize_ocr_text(text: str) -> str:
         "ADRESSE/ADDRESS": "ADRESSE / ADDRESS",
         "TAILLE/SIM": "TAILLE / SIZE",
         "TALLLE/SIM": "TAILLE / SIZE",
+        "PRINONS": "PRENOMS",
+        "NATONALIESA": "NATIONALITE",
+        "NATONALITE": "NATIONALITE",
     }
     for src, dst in replacements.items():
         text = text.replace(src, dst)
@@ -96,12 +104,17 @@ def _is_label(line: str) -> bool:
 def _normalize_date(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
-    # "15 0913" -> "15 09 13"
     value = value.strip()
-    glued = re.fullmatch(r"(\d{1,2})\s*(\d{2})(\d{2,4})", value)
-    if glued and " " not in value.strip():
-        value = f"{glued.group(1)} {glued.group(2)} {glued.group(3)}"
-    value = re.sub(r"\s+", " ", value.strip())
+    # "28 02. 95" / "28. 02.95" / "28 02 . 95" → séparateurs homogènes
+    value = re.sub(r"[./\-]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    # "15 0913" -> "15 09 13"
+    glued = re.fullmatch(r"(\d{1,2})\s*(\d{2})(\d{2,4})", value.replace(" ", ""))
+    if glued and not re.fullmatch(r"\d{1,2}\s+\d{1,2}\s+\d{2,4}", value):
+        compact = value.replace(" ", "")
+        glued2 = re.fullmatch(r"(\d{1,2})(\d{2})(\d{2,4})", compact)
+        if glued2:
+            value = f"{glued2.group(1)} {glued2.group(2)} {glued2.group(3)}"
     # "15 0913" with space only once
     m = re.fullmatch(r"(\d{1,2})\s+(\d{4})", value)
     if m:
@@ -239,30 +252,45 @@ def _fix_ci_passport_number(numero: Optional[str]) -> Optional[str]:
     return None
 
 
+def _normalize_mrz_ocr(line: str) -> str:
+    """Corrige les confusions OCR fréquentes dans la MRZ passeport."""
+    line = re.sub(r"\s+", "", line.upper())
+    line = line.replace("C1V", "CIV")
+    # Dans la zone noms (après P<CIV), 0/1/5 souvent confondus avec O/I/S.
+    if line.startswith("P<"):
+        head, sep, tail = line.partition("<<")
+        # Garder P<CIV intact, normaliser le nom
+        if len(head) >= 5:
+            prefix, name = head[:5], head[5:]
+            name = name.translate(str.maketrans("015", "OIS"))
+            line = prefix + name + (("<<" + tail) if sep else "")
+    return line
+
+
 def parse_mrz_td3(text: str) -> dict[str, Optional[str]]:
     """MRZ passeport (2 lignes TD3)."""
-    raw_lines = [re.sub(r"\s+", "", line.upper()) for line in text.splitlines() if line.strip()]
+    raw_lines = [_normalize_mrz_ocr(line) for line in text.splitlines() if line.strip()]
 
-    line1 = next((line for line in raw_lines if re.match(r"^P<[A-Z]{3}", line)), None)
+    line1 = next((line for line in raw_lines if re.match(r"^P<[A-Z0-9]{3}", line)), None)
     line2 = next(
         (
             line
             for line in raw_lines
-            # Accepte CIV ou variantes + numéro avec C1 au lieu de CI
             if re.match(r"^[A-Z0-9<]{8,9}\d?[A-Z]{3}\d{6}\d[MF<\d]\d{6}", line)
             or re.match(r"^[A-Z0-9]{9}\d[A-Z]{3}\d{6}\d[MF]\d{6}", line)
+            or re.search(r"CIV\d{6}\d[MF]\d{6}", line)
         ),
         None,
     )
-    # Fallback plus souple: ligne contenant CIV + date + sexe
+    # Fallback : longue ligne avec date + sexe + date (sans CIV lisible).
     if line2 is None:
         line2 = next(
             (
                 line
                 for line in raw_lines
-                if "CIV" in line
+                if not line.startswith("P<")
+                and len(line) >= 28
                 and re.search(r"\d{6}\d[MF]\d{6}", line)
-                and not line.startswith("P<")
             ),
             None,
         )
@@ -282,31 +310,47 @@ def parse_mrz_td3(text: str) -> dict[str, Optional[str]]:
         parts = body.split("<<", 1)
         if parts:
             data["nom"] = parts[0].replace("<", " ").strip() or None
+            if data["nom"]:
+                data["nom"] = data["nom"].translate(str.maketrans("015", "OIS"))
         if len(parts) > 1:
             prenoms = parts[1].replace("<", " ").strip()
             prenoms = re.sub(r"\s+", " ", prenoms)
             data["prenoms"] = prenoms or None
-        nat_code = line1[2:5]
+        nat_code = line1[2:5].replace("1", "I")
         data["nationalite"] = "IVOIRIENNE" if nat_code == "CIV" else nat_code
 
     if line2:
-        # 58CI060195CIV8201319F1309157... ou 58C1060195CIV...
         numero = _fix_ci_passport_number(line2[0:9].replace("<", ""))
         data["numero"] = numero
-        civ_pos = line2.find("CIV")
-        if civ_pos >= 0 and len(line2) >= civ_pos + 22:
+
+        # CIV8201319F130915 → date_naissance / sexe / date_expiration
+        mrz_tail = re.search(r"CIV(\d{6})\d([MF])(\d{6})", line2)
+        if mrz_tail:
             data["nationalite"] = "IVOIRIENNE"
-            data["date_naissance"] = _yymmdd_to_iso(line2[civ_pos + 3 : civ_pos + 9])
-            sex = line2[civ_pos + 10]
-            data["sexe"] = sex if sex in {"M", "F"} else None
+            data["date_naissance"] = _yymmdd_to_iso(mrz_tail.group(1))
+            data["sexe"] = mrz_tail.group(2)
             data["date_expiration"] = _yymmdd_to_iso(
-                line2[civ_pos + 11 : civ_pos + 17],
+                mrz_tail.group(3),
                 expiry=True,
             )
         else:
+            # Positions TD3 standards si la nationalité est illisible.
             data["date_naissance"] = _yymmdd_to_iso(line2[13:19])
-            data["sexe"] = line2[20] if len(line2) > 20 and line2[20] in {"M", "F"} else None
+            data["sexe"] = (
+                line2[20] if len(line2) > 20 and line2[20] in {"M", "F"} else None
+            )
             data["date_expiration"] = _yymmdd_to_iso(line2[21:27], expiry=True)
+            # Dernier recours : chercher le motif date+sexe+date partout.
+            loose = re.search(r"(\d{6})\d([MF])(\d{6})", line2)
+            if loose and (not data["date_naissance"] or not data["sexe"]):
+                data["date_naissance"] = data["date_naissance"] or _yymmdd_to_iso(
+                    loose.group(1)
+                )
+                data["sexe"] = data["sexe"] or loose.group(2)
+                data["date_expiration"] = data["date_expiration"] or _yymmdd_to_iso(
+                    loose.group(3),
+                    expiry=True,
+                )
 
     return data
 
@@ -324,10 +368,20 @@ def _extract_layout_recto(normalized: str) -> dict[str, Optional[str]]:
 
     for idx, line in enumerate(lines):
         fixed = _fix_ci_passport_number(line)
-        if fixed and idx + 2 < len(lines):
+        if fixed:
             result["numero"] = fixed
-            cand_nom = _clean_value(lines[idx + 1])
-            cand_prenoms = _clean_value(lines[idx + 2])
+            value_idx = idx + 1
+            # Certains OCR gardent "Nom/Surname" mais perdent le label Prénoms.
+            if value_idx < len(lines) and re.search(
+                r"\bNOM\b|\bSURNAME\b|\bSARD\b",
+                lines[value_idx],
+                re.I,
+            ):
+                value_idx += 1
+            if value_idx + 1 >= len(lines):
+                break
+            cand_nom = _clean_value(lines[value_idx])
+            cand_prenoms = _clean_value(lines[value_idx + 1])
             if (
                 cand_nom
                 and not _is_noise_value(cand_nom)
@@ -404,13 +458,39 @@ def extract_recto(text: str) -> dict[str, Optional[str]]:
 
     date_naissance = _normalize_date(
         _first_match(
-            [rf"(?:DATE\s+DE\s+NAISSANCE|DATE\s+OF\s+BIRTH)\s*[:\-]?\s*{DATE_PATTERN}"],
+            [
+                rf"(?:DATE\s+DE\s+NAI[S]+ANCE|DATE\s+OF\s+BIRTH|DACE\s+DE\s+NAL|"
+                rf"DUCE\s+DE\s+NAB|DANE\s+DE\s+ABS)\s*[:\-]?\s*{DATE_PATTERN}"
+            ],
             normalized,
         )
     ) or _find_date_near_label(
         normalized,
-        [r"DATE\s+DE\s+NAISSANCE", r"DATE\s+OF\s+BIRTH", r"DACE\s+DE\s+NAL"],
+        [
+            r"DATE\s+DE\s+NAI[S]+ANCE",
+            r"DATE\s+OF\s+BIRTH",
+            r"DACE\s+DE\s+NAL",
+            r"DUCE\s+DE\s+NAB",
+            r"NABSANCE",
+            r"ABSANCE",
+            r"OF\s+B[OÖ]R?TH",
+            r"OF\s+BIR",
+        ],
     )
+    # Date seule au format "31 01 82" près du bloc identité (souvent sans label lisible).
+    if not date_naissance:
+        birth_candidates: list[str] = []
+        for raw in re.findall(DATE_PATTERN, normalized):
+            normalized_date = _normalize_date(raw)
+            if not normalized_date:
+                continue
+            year = int(normalized_date[:4])
+            # Naissance typique : avant les dates de délivrance/expiration récentes.
+            if 1940 <= year <= 2012:
+                birth_candidates.append(normalized_date)
+        if birth_candidates:
+            date_naissance = min(birth_candidates)
+
 
     date_expiration = _normalize_date(
         _first_match(
@@ -443,6 +523,59 @@ def extract_recto(text: str) -> dict[str, Optional[str]]:
             r"BLOCE\s+OF",
         ],
     ) or layout.get("lieu_naissance")
+    # OCR mélange parfois la date (ex. "28 02. 95") avec le lieu.
+    if lieu_naissance and (
+        _normalize_date(lieu_naissance) is not None or re.search(r"\d", lieu_naissance)
+    ):
+        lieu_naissance = None
+    if not lieu_naissance:
+        # Villes / lieux fréquents CI, ou ligne alphabétique juste après la date de naissance.
+        city_re = re.compile(
+            r"\b(YOPOUGON|ABIDJAN|BOUAKE|BOUAKÉ|DABOU|SAN[\s\-]?PEDRO|"
+            r"KORHOGO|DALOA|MAN|GAGNOA|DIVO|ANYAMA|ADJAME|ABOBO|"
+            r"COCODY|MARCORY|TREICHVILLE|PORT[\s\-]?BOUET)\b",
+            re.I,
+        )
+        for line in _lines(normalized):
+            m = city_re.search(line)
+            if m:
+                lieu_naissance = m.group(1).upper().replace("É", "E")
+                break
+        if not lieu_naissance and date_naissance:
+            lines = _lines(normalized)
+            for idx, line in enumerate(lines):
+                if _normalize_date(_clean_value(line)) == date_naissance:
+                    for nxt in lines[idx + 1 : idx + 3]:
+                        cand = _clean_value(nxt)
+                        if (
+                            cand
+                            and not re.search(r"\d", cand)
+                            and not _is_label(cand)
+                            and not _is_noise_value(cand)
+                            and re.fullmatch(r"[A-ZÄËÏÖÜÂÊÎÔÛÀÈÙÇ \-']{3,40}", cand)
+                            and cand
+                            not in {
+                                "IVOIRIENNE",
+                                "IVOIRIEN",
+                                "SPECIMEN",
+                                "PASSEPORT",
+                                "PASSPORT",
+                                "AUTORITE",
+                                "AUTHORITY",
+                            }
+                        ):
+                            lieu_naissance = cand
+                            break
+                    break
+        if not lieu_naissance:
+            # OCR tronqué : "ABOU" pour "DABOU"
+            for line in _lines(normalized):
+                cand = _clean_value(line)
+                if cand in {"ABOU", "DABO", "DABOU"}:
+                    lieu_naissance = "DABOU" if cand.startswith("ABOU") or cand.startswith("DAB") else cand
+                    if cand == "ABOU":
+                        lieu_naissance = "DABOU"
+                    break
 
     return {
         "numero": numero,
@@ -540,11 +673,19 @@ def merge_passeport_fields(recto_text: str, verso_text: str) -> dict[str, Option
     numero = _fix_ci_passport_number(mrz.get("numero")) or _fix_ci_passport_number(
         recto.get("numero")
     )
+    ocr_prenoms = recto.get("prenoms")
+    # Sur les layouts sans label "Prénoms", l'heuristique peut reprendre le nom.
+    # La MRZ est alors la source la plus fiable.
+    if ocr_prenoms and ocr_prenoms.upper() in {
+        (recto.get("nom") or "").upper(),
+        (mrz.get("nom") or "").upper(),
+    }:
+        ocr_prenoms = None
 
     merged = {
         "numero": numero,
         "nom": _prefer(recto.get("nom"), mrz.get("nom")),
-        "prenoms": _prefer_prenoms(recto.get("prenoms"), mrz.get("prenoms")),
+        "prenoms": _prefer_prenoms(ocr_prenoms, mrz.get("prenoms")),
         "nationalite": _prefer(recto.get("nationalite"), mrz.get("nationalite")),
         "date_naissance": _prefer(mrz.get("date_naissance"), recto.get("date_naissance")),
         "date_expiration": _prefer(mrz.get("date_expiration"), recto.get("date_expiration")),

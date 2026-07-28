@@ -75,13 +75,16 @@ body::before {
   gap: 0.85rem;
 }
 
-.brand-mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background:
-    linear-gradient(145deg, #f0a36a, var(--accent) 45%, #2f8c60);
-  box-shadow: 0 8px 20px rgba(217, 106, 43, 0.35);
+.brand-logo {
+  display: block;
+  height: 48px;
+  width: auto;
+  max-width: min(180px, 42vw);
+  object-fit: contain;
+  border-radius: 8px;
+  background: #01582a;
+  padding: 0.25rem 0.4rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
 }
 
 .brand-name {
@@ -167,7 +170,7 @@ h2 {
   display: inline-flex;
   padding: 0.25rem;
   border-radius: 999px;
-  background: rgba(18, 38, 31, 0.08);
+  background: #01582a;
   margin-bottom: 1.15rem;
   gap: 0.2rem;
 }
@@ -187,6 +190,17 @@ h2 {
 .doc-btn.is-active {
   background: var(--ink);
   color: #f4faf6;
+}
+
+.doc-auto {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.48rem 0.85rem;
+  border-radius: 999px;
+  background: #01582a;
+  color: #f4faf6;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .doc-btn:hover {
@@ -331,12 +345,117 @@ h2 {
   font-size: 1.15rem;
 }
 
+.camera-stage {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0b1511;
+}
+
 #cameraVideo {
+  display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  border-radius: 12px;
   background: #0b1511;
+}
+
+.camera-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(90%, 92%);
+  aspect-ratio: 1.585 / 1;
+  border: 3px solid rgba(239, 68, 68, 0.95);
+  border-radius: 12px;
+  box-shadow: 0 0 0 100vmax rgba(6, 12, 10, 0.45);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  pointer-events: none;
+}
+
+.camera-frame.is-blur {
+  border-color: rgba(234, 179, 8, 0.98);
+  box-shadow: 0 0 0 100vmax rgba(6, 12, 10, 0.4),
+    0 0 14px rgba(234, 179, 8, 0.5);
+}
+
+.camera-frame.is-good {
+  border-color: rgba(34, 197, 94, 0.98);
+  box-shadow: 0 0 0 100vmax rgba(6, 12, 10, 0.28),
+    0 0 18px rgba(34, 197, 94, 0.55);
+}
+
+.camera-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 3px solid #fff;
+  opacity: 0.9;
+}
+
+.camera-corner.tl {
+  top: -3px;
+  left: -3px;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 12px;
+}
+
+.camera-corner.tr {
+  top: -3px;
+  right: -3px;
+  border-left: none;
+  border-bottom: none;
+  border-top-right-radius: 12px;
+}
+
+.camera-corner.bl {
+  bottom: -3px;
+  left: -3px;
+  border-right: none;
+  border-top: none;
+  border-bottom-left-radius: 12px;
+}
+
+.camera-corner.br {
+  bottom: -3px;
+  right: -3px;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 12px;
+}
+
+.camera-guide {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(6, 12, 10, 0.62);
+  white-space: nowrap;
+  transition: background 0.2s ease;
+  pointer-events: none;
+}
+
+.camera-guide.is-blur {
+  background: rgba(161, 98, 7, 0.85);
+}
+
+.camera-guide.is-good {
+  background: rgba(21, 128, 61, 0.85);
+}
+
+.camera-actions .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
 }
 
 .camera-actions {
@@ -362,6 +481,27 @@ h2 {
   padding: 0.75rem 1.2rem;
   cursor: pointer;
   transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+
+#submitBtn {
+  background: #d1900dd6;
+  color: #fff;
+}
+
+#submitBtn:hover {
+  background: #01582a;
+  color: #fff;
+}
+
+#copyBtn {
+  background: #fff;
+  color: #f0a000d8;
+  border: 1px solid #f0a000;
+}
+
+#copyBtn:hover {
+  background: #f0a000;
+  color: #fff;
 }
 
 .btn-primary {
@@ -415,6 +555,66 @@ h2 {
 .fields-grid {
   display: grid;
   gap: 0.55rem;
+}
+
+.empty-result {
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.document-assets {
+  margin-top: 1rem;
+}
+
+.document-assets h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.assets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.asset-card {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.asset-card img {
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(18, 38, 31, 0.05);
+}
+
+.asset-signature img {
+  height: 180px;
+  object-fit: contain;
+  background: #f4f7f5;
+}
+
+.asset-card figcaption {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .field {
@@ -522,6 +722,11 @@ h2 {
 }
 
 @media (max-width: 640px) {
+  .brand-logo {
+    height: 40px;
+    max-width: min(140px, 38vw);
+  }
+
   .drop-grid {
     grid-template-columns: 1fr;
   }
@@ -530,6 +735,10 @@ h2 {
     grid-template-columns: 1fr;
     gap: 0.35rem;
     align-items: stretch;
+  }
+
+  .assets-grid {
+    grid-template-columns: 1fr;
   }
 
   .page {
