@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,20 +19,27 @@ logging.basicConfig(
 logger = logging.getLogger("yako_ocr")
 
 
+def _warmup_enabled() -> bool:
+    return os.getenv("OCR_WARMUP", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Précharge PaddleOCR au démarrage pour éviter le 1er appel très lent
-    from app.services.ocr import ocr_service
+    # Précharge OCR au démarrage (désactivable via OCR_WARMUP=0 sur cPanel)
+    if _warmup_enabled():
+        from app.services.ocr import ocr_service
 
-    try:
-        import time
+        try:
+            import time
 
-        logger.info("Warmup OCR en cours...")
-        t0 = time.perf_counter()
-        ocr_service.warmup()
-        logger.info("Warmup OCR terminé en %.0f ms", (time.perf_counter() - t0) * 1000)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Warmup OCR ignoré: %s", exc)
+            logger.info("Warmup OCR en cours...")
+            t0 = time.perf_counter()
+            ocr_service.warmup()
+            logger.info("Warmup OCR terminé en %.0f ms", (time.perf_counter() - t0) * 1000)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Warmup OCR ignoré: %s", exc)
+    else:
+        logger.info("Warmup OCR désactivé (OCR_WARMUP=0)")
     yield
 
 
