@@ -11,13 +11,14 @@ from app.schemas.cmu import CMUResult
 from app.schemas.cni import CNIResult
 from app.schemas.passeport import PasseportResult
 from app.schemas.permis import PermisResult
-from app.services.pipeline import process_document, validate_upload
+from app.schemas.rib import RIBResult
+from app.services.pipeline import process_document, process_rib, validate_upload
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ocr", tags=["Document"])
 
 DocumentResult = Annotated[
-    Union[CNIResult, PasseportResult, CMUResult, PermisResult],
+    Union[CNIResult, PasseportResult, CMUResult, PermisResult, RIBResult],
     Field(discriminator="document_type"),
 ]
 
@@ -51,6 +52,55 @@ async def ocr_document(
             "POST /ocr/document terminé en %.0f ms (type=%s)",
             (time.perf_counter() - request_started) * 1000,
             result.document_type,
+        )
+        return result
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            ),
+        ) from exc
+    except ValueError as exc:
+        message = str(exc)
+        code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if "critiques" in message.lower() or "type de document" in message.lower()
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=code, detail=message) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors du traitement OCR: {exc}",
+        ) from exc
+
+
+@router.post(
+    "/rib",
+    response_model=RIBResult,
+    summary="Extraire les informations d'un RIB (recto seul)",
+)
+async def ocr_rib(
+    recto: UploadFile = File(..., description="Image du RIB (recto seul)"),
+) -> RIBResult:
+    request_started = time.perf_counter()
+    try:
+        validate_upload(recto.filename, recto.content_type)
+
+        recto_bytes = await recto.read()
+        if not recto_bytes:
+            raise ValueError("Le fichier recto est obligatoire.")
+
+        result = process_rib(
+            recto_bytes,
+            recto_content_type=recto.content_type,
+        )
+        logger.info(
+            "POST /ocr/rib terminé en %.0f ms",
+            (time.perf_counter() - request_started) * 1000,
         )
         return result
     except ValidationError as exc:

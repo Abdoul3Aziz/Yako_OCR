@@ -12,11 +12,13 @@ from app.extractors.cmu import merge_cmu_fields
 from app.extractors.cni import merge_cni_fields
 from app.extractors.passeport import merge_passeport_fields
 from app.extractors.permis import merge_permis_fields
+from app.extractors.rib import merge_rib_fields
 from app.schemas.assets import encode_upload_asset
 from app.schemas.cmu import CMURawText, CMUResult
 from app.schemas.cni import CNIRawText, CNIResult
 from app.schemas.passeport import PasseportRawText, PasseportResult
 from app.schemas.permis import PermisRawText, PermisResult
+from app.schemas.rib import RIBRawText, RIBResult
 from app.services.document_assets import extract_document_assets
 from app.services.document_type import DocumentType, detect_document_type
 from app.services.ocr import OCR_BACKEND, ocr_service
@@ -66,6 +68,13 @@ PERMIS_PRIORITY = (
     "lieu_naissance",
     "date_delivrance",
     "lieu_delivrance",
+)
+RIB_PRIORITY = (
+    "code_banque",
+    "code_guichet",
+    "numero_compte",
+    "cle_rib",
+    "iban",
 )
 FALLBACK_MIN_MISSING = max(1, int(os.getenv("OCR_FALLBACK_MIN_MISSING", "2")))
 
@@ -191,6 +200,11 @@ def _preprocess_pair_with_sources(recto_bytes: bytes, verso_bytes: bytes):
     (recto_ocr, recto_source) = fut_recto.result()
     (verso_ocr, verso_source) = fut_verso.result()
     return recto_ocr, verso_ocr, recto_source, verso_source
+
+
+def _preprocess_single_with_source(image_bytes: bytes):
+    """Prétraite une seule image (pour RIB recto seul)."""
+    return preprocess_image_with_source(image_bytes)
 
 
 def _ocr_both_faces(
@@ -345,7 +359,7 @@ def process_document(
     *,
     recto_content_type: str | None = None,
     verso_content_type: str | None = None,
-) -> CNIResult | PasseportResult | CMUResult | PermisResult:
+) -> CNIResult | PasseportResult | CMUResult | PermisResult | RIBResult:
     """Détecte le document puis applique l'extracteur correspondant, sans refaire l'OCR."""
     started = time.perf_counter()
     t0 = time.perf_counter()
@@ -356,6 +370,20 @@ def process_document(
         verso_source,
     ) = _preprocess_pair_with_sources(recto_bytes, verso_bytes)
     preprocess_ms = (time.perf_counter() - t0) * 1000
+
+    # Cas spécial : si verso vide, détecter si c'est un RIB
+    if not verso_bytes or len(verso_bytes) < 100:
+        try:
+            temp_text = ocr_service.extract_texts([recto_image], backend="rapid")[0]
+            if "RIB" in temp_text.upper() or "IBAN" in temp_text.upper():
+                try:
+                    doc_type = detect_document_type(temp_text, "")
+                    if doc_type == "rib":
+                        return process_rib(recto_bytes, recto_content_type=recto_content_type)
+                except ValueError:
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
 
     mode = OCR_BACKEND if OCR_BACKEND in {"rapid", "paddle", "hybrid"} else "hybrid"
     first_backend = "paddle" if mode == "paddle" else "rapid"
@@ -429,7 +457,7 @@ def process_document(
         "verso": encode_upload_asset(verso_bytes, verso_content_type),
     }
     if document_type == "cni":
-        result: CNIResult | PasseportResult | CMUResult | PermisResult = CNIResult(
+        result: CNIResult | PasseportResult | CMUResult | PermisResult | RIBResult = CNIResult(
             **fields,
             **assets,
             **upload_assets,
@@ -448,6 +476,13 @@ def process_document(
             **assets,
             **upload_assets,
             raw_text=CMURawText(recto=recto_text, verso=verso_text),
+        )
+    elif document_type == "rib":
+        result = RIBResult(
+            **fields,
+            **assets,
+            **upload_assets,
+            raw_text=RIBRawText(recto=recto_text, verso=verso_text),
         )
     else:
         result = PermisResult(
@@ -469,6 +504,64 @@ def process_document(
     return result
 
 
+def process_rib(
+    recto_bytes: bytes,
+    *,
+    recto_content_type: str | None = None,
+) -> RIBResult:
+    """Traite un RIB (recto seul)."""
+    started = time.perf_counter()
+    t0 = time.perf_counter()
+    recto_image, recto_source = _preprocess_single_with_source(recto_bytes)
+    preprocess_ms = (time.perf_counter() - t0) * 1000
+
+    mode = OCR_BACKEND if OCR_BACKEND in {"rapid", "paddle", "hybrid"} else "hybrid"
+    first_backend = "paddle" if mode == "paddle" else "rapid"
+    t_ocr = time.perf_counter()
+    recto_text = ocr_service.extract_texts([recto_image], backend=first_backend)[0]
+    used = first_backend
+    paddle_text: str | None = None
+
+    fields = merge_rib_fields(recto_text, "")
+
+    if mode == "hybrid" and _should_fallback(fields, RIB_PRIORITY):
+        missing = _missing_priority(fields, RIB_PRIORITY)
+        logger.info(
+            "Hybrid fallback Paddle (RIB, champs prioritaires manquants: %s)",
+            ", ".join(missing) or "plusieurs vides",
+        )
+        try:
+            t_fb = time.perf_counter()
+            paddle_text = ocr_service.extract_texts([recto_image], backend="paddle")[0]
+            paddle_fields = merge_rib_fields(paddle_text, "")
+            fields = _merge_fields(fields, paddle_fields)
+            recto_text = _prefer_text(recto_text, paddle_text)
+            used = f"hybrid+paddle({(time.perf_counter() - t_fb) * 1000:.0f}ms)"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Fallback Paddle impossible: %s", exc)
+
+    assets = extract_document_assets("rib", recto_source, None)
+    upload_assets = {
+        "recto": encode_upload_asset(recto_bytes, recto_content_type),
+    }
+
+    result = RIBResult(
+        **fields,
+        **assets,
+        **upload_assets,
+        raw_text=RIBRawText(recto=recto_text, verso=""),
+    )
+
+    logger.info(
+        "RIB traité en %.0f ms (preprocess=%.0f ms, ocr=%.0f ms, backend=%s)",
+        (time.perf_counter() - started) * 1000,
+        preprocess_ms,
+        (time.perf_counter() - t_ocr) * 1000,
+        used,
+    )
+    return result
+
+
 def _document_pipeline(document_type: DocumentType):
     if document_type == "cni":
         return merge_cni_fields, CNI_PRIORITY
@@ -476,4 +569,6 @@ def _document_pipeline(document_type: DocumentType):
         return merge_passeport_fields, PASSEPORT_PRIORITY
     if document_type == "cmu":
         return merge_cmu_fields, CMU_PRIORITY
+    if document_type == "rib":
+        return merge_rib_fields, RIB_PRIORITY
     return merge_permis_fields, PERMIS_PRIORITY

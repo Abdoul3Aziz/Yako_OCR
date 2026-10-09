@@ -5,7 +5,7 @@ import unicodedata
 from typing import Literal, cast
 
 
-DocumentType = Literal["cni", "passeport", "cmu", "permis"]
+DocumentType = Literal["cni", "passeport", "cmu", "permis", "rib"]
 
 
 def _normalize(text: str) -> str:
@@ -19,7 +19,7 @@ def _normalize(text: str) -> str:
 def detect_document_type(recto_text: str, verso_text: str) -> DocumentType:
     """Détecte le document grâce aux titres et aux préfixes MRZ."""
     text = _normalize(f"{recto_text}\n{verso_text}")
-    scores = {"cni": 0, "passeport": 0, "cmu": 0, "permis": 0}
+    scores = {"cni": 0, "passeport": 0, "cmu": 0, "permis": 0, "rib": 0}
 
     # Indices visuels explicites.
     if re.search(r"CARTE\s+NATIONALE\s+D[' ]?IDENTITE", text):
@@ -30,6 +30,8 @@ def detect_document_type(recto_text: str, verso_text: str) -> DocumentType:
         scores["cmu"] += 9
     if re.search(r"\bPERMIS\s+DE\s+CONDUIRE\b", text):
         scores["permis"] += 9
+    if re.search(r"RIB|RELEVE\s*D[' ]?IDENTITE\s*BANCAIRE|IDENTITE\s*BANCAIRE", text):
+        scores["rib"] += 9
 
     # MRZ ivoiriennes : TD1 pour la CNI, TD3 pour le passeport.
     if re.search(r"(?m)^\s*IDCIV", text):
@@ -55,13 +57,20 @@ def detect_document_type(recto_text: str, verso_text: str) -> DocumentType:
         scores["permis"] += 4
     if re.search(r"MINISTERE\s+DES\s+TRANSPORTS", text):
         scores["permis"] += 2
+    if re.search(r"\bIBAN\b|\bBIC\b|\bSWIFT\b", text):
+        scores["rib"] += 5
+    if re.search(r"CODE\s+BANQUE|CODE\s*GUICHET|CLE\s+RIB", text):
+        scores["rib"] += 4
+    # Pattern RIB : 5+5+11/12+2 chiffres
+    if re.search(r"\d{5}\s*\d{5}\s*\d{11,12}\s*\d{2}", text):
+        scores["rib"] += 7
 
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     best, best_score = ranked[0]
     if best_score < 5 or best_score == ranked[1][1]:
         raise ValueError(
             "Type de document non reconnu. Fournissez une CNI, un passeport, "
-            "une carte CMU ou un permis de conduire "
+            "une carte CMU, un permis de conduire ou un RIB "
             "avec le titre ou la zone MRZ lisible."
         )
     return cast(DocumentType, best)

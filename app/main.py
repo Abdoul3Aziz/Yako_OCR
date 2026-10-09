@@ -75,6 +75,7 @@ def api_info():
         "message": "OCR API fonctionne",
         "endpoints": {
             "document": "POST /ocr/document (détection automatique, multipart: recto, verso)",
+            "rib": "POST /ocr/rib (extraction RIB, multipart: recto)",
             "docs": "/docs",
             "ui": "/",
             "health": "/health",

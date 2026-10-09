@@ -49,6 +49,17 @@
       "lieu_delivrance",
       "groupe_sanguin",
     ],
+    rib: [
+      "document_type",
+      "code_banque",
+      "code_guichet",
+      "numero_compte",
+      "cle_rib",
+      "iban",
+      "bic_swift",
+      "nom_banque",
+      "titulaire",
+    ],
   };
 
   const FIELD_LABELS = {
@@ -72,6 +83,14 @@
     lieu_delivrance: "Lieu de délivrance",
     groupe_sanguin: "Groupe sanguin",
     adresse: "Adresse",
+    code_banque: "Code banque",
+    code_guichet: "Code guichet",
+    numero_compte: "Numéro de compte",
+    cle_rib: "Clé RIB",
+    iban: "IBAN",
+    bic_swift: "BIC/SWIFT",
+    nom_banque: "Nom de la banque",
+    titulaire: "Titulaire",
   };
 
   const form = document.getElementById("ocrForm");
@@ -84,6 +103,7 @@
   const documentAssets = document.getElementById("documentAssets");
   const assetsGrid = document.getElementById("assetsGrid");
   const jsonOut = document.getElementById("jsonOut");
+  const docTypeSelect = document.getElementById("docTypeSelect");
 
   const sides = {
     recto: {
@@ -125,6 +145,26 @@
 
   // Toujours l'origine courante (local ou Render)
   apiBaseInput.value = window.location.origin;
+
+  // Gestion du changement de type de document
+  docTypeSelect.addEventListener("change", () => {
+    const docType = docTypeSelect.value;
+    const versoZone = sides.verso.zone;
+    const versoInput = sides.verso.input;
+
+    if (docType === "rib") {
+      // Masquer le verso pour RIB
+      versoZone.style.display = "none";
+      versoInput.required = false;
+      if (versoInput.files.length > 0) {
+        clearSide("verso");
+      }
+    } else {
+      // Afficher le verso pour les autres documents
+      versoZone.style.display = "";
+      versoInput.required = true;
+    }
+  });
 
   function setStatus(message, kind = "") {
     statusEl.textContent = message || "";
@@ -730,19 +770,28 @@
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
+    const docType = docTypeSelect.value;
     const recto = sides.recto.input.files?.[0];
     const verso = sides.verso.input.files?.[0];
-    if (!recto || !verso) {
-      setStatus("Ajoutez le recto et le verso (fichier ou photo).", "is-error");
+
+    if (!recto) {
+      setStatus("Ajoutez le recto (fichier ou photo).", "is-error");
+      return;
+    }
+
+    if (docType !== "rib" && !verso) {
+      setStatus("Ajoutez le verso (fichier ou photo).", "is-error");
       return;
     }
 
     const base = (apiBaseInput.value || window.location.origin).replace(/\/$/, "");
-    const url = `${base}/ocr/document`;
+    const url = docType === "rib" ? `${base}/ocr/rib` : `${base}/ocr/document`;
 
     const body = new FormData();
     body.append("recto", recto);
-    body.append("verso", verso);
+    if (verso) {
+      body.append("verso", verso);
+    }
 
     submitBtn.disabled = true;
     setStatus("Analyse OCR en cours… cela peut prendre quelques secondes.");
@@ -776,6 +825,7 @@
           passeport: "Passeport",
           cmu: "CMU",
           permis: "Permis de conduire",
+          rib: "RIB",
         }[payload.document_type] || "Document";
       setStatus(
         missing
