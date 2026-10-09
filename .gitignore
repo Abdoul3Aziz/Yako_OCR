@@ -62,5 +62,9 @@ docker-compose*.yml
 requirements-docker.txt
 render.yaml
 
+# Configuration de déploiement spécifique
+passenger_wsgi.py
+requirements.txt
+
 # Fichiers générés frontend éventuels
 frontend/node_modules/
